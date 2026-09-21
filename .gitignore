@@ -1,0 +1,11 @@
+*.iml
+.gradle/
+build/
+app/build/
+local.properties
+app/shuai.keystore
+app/keystore.properties
+*.jks
+.idea/
+captures/
+.DS_Store

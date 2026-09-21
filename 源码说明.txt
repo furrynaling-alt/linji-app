@@ -1,0 +1,67 @@
+棂记 · 源码说明
+================
+
+包名 / 应用名：com.naling.shuai / 棂记
+当前版本：versionName 2.30，versionCode 40
+语言：Kotlin（纯代码布局，没有 XML 布局、没有 Jetpack Compose、没有 AndroidX UI）
+依赖：只有 dev.rikka.shizuku:api / provider 13.1.5（熄屏用），其余全原生
+
+一、怎么编译
+------------
+环境：JDK 17 + Android SDK Platform 34 + Build-Tools 34.0.0（Gradle 用仓库自带 wrapper 8.7）
+命令行：
+  echo "sdk.dir=/你的/android-sdk" > local.properties
+  export JAVA_HOME=/你的/jdk17
+  ./gradlew :app:assembleDebug
+产物：app/build/outputs/apk/debug/app-debug.apk
+Android Studio 直接打开目录也行（会提示设置 SDK 路径，正常设置即可）。
+
+二、签名（本仓库不带钥匙）
+--------------------------
+app/build.gradle 里的 signingConfigs 是「有 shuai.keystore 才挂签名，否则用系统默认 debug 签名」。
+要出自己的正式包：自己生成一把钥匙，并写 app/keystore.properties（storePassword / keyAlias / keyPassword）：
+  keytool -genkeypair -keystore app/shuai.keystore -alias 你的别名 -keyalg RSA -keysize 2048 \
+    -validity 10000 -storepass 你的密码 -keypass 你的密码 -dname "CN=you, C=CN"
+注意：换签名 = 不能覆盖安装（要先导出备份 → 卸载旧版 → 装新版 → 导入备份）。
+钥匙不要外传：谁有钥匙，谁就能签出能覆盖你手机的升级包。
+
+三、源码结构（约 9200 行 Kotlin）
+---------------------------------
+app/src/main/java/com/naling/shuai/
+  MainActivity.kt    全部界面：首页/番茄/记录/用药/设置/工资/记账/统计 + 底部药丸导航
+                     + 导出导入（.linji）、设置页各分组、开发者模式、熄屏录像与诊断
+  Cards.kt           首页卡片网格（纪念日/倒数日/图表卡/功能卡，增删改、背景、高度、尺寸）
+  LockService.kt     锁机与睡眠：询问屏/睡眠屏/定时锁、悬浮窗、熄屏链路、长按解锁、
+                     「早上好」门禁（默认 4:00）、翻车自愈（心跳 + 半夜被杀自动补记）
+  Store.kt           数据层：SharedPreferences + org.json（习惯/用药/番茄/笔记/睡眠/待办/
+                     设置/功能开关），备份导出走这里
+  Wage.kt            工时工资（小时工记账：班次、迟到早退、补贴扣款、月工资）
+  Book.kt            记账（收支、分类、预算、统计、CSV）
+  Bridge.kt          App 桥（服务器 ↔ 手机 出站轮询：上报 + 收指令）
+  Update.kt          应用内更新（version.json → 下载 → md5 → 交给系统安装器；自写 ApkProvider）
+  Linji.kt           .linji 加密备份格式（AES-256-GCM + PBKDF2，20 万次）
+  SshKey.kt          App 内生成 RSA-2048（公钥 OpenSSH 格式、私钥 PKCS#8）
+  RecorderService.kt 熄屏录像（老 Camera + MediaRecorder，含只录音兜底）
+  PomodoroService.kt 番茄钟前台服务
+  QuickWidget.kt / WidgetAction.kt  桌面小组件
+  Alarms.kt          定时（锁机/起床/用药/喝水/夜间看门狗）
+  Ui.kt              纯代码 UI 组件（卡片、药丸导航、涟漪、矢量图标、动效）
+  Cards/HomeCharts/TrendView/Ui/Notify/AdminReceiver/ShizukuShell/Bridge/Update 等
+
+四、服务器那半边（可选）
+------------------------
+更新清单 + App 桥的服务端在另一个仓库 `linji`：bridge.php（单文件 PHP 桥 + 网页控制台）、
+server.js（Node 版）、nginx 配置示例、部署教程。
+App 里「设置 → 服务器」填自己的域名或 IP 即可（留空用默认服务器）。
+
+五、作者真机踩过的坑（改代码前值得看）
+--------------------------------------
+1. 熄屏 ≠ 锁屏：不能用 DevicePolicyManager.lockNow()（会要求输密码）。做法是放开常亮 +
+   临时把 SCREEN_OFF_TIMEOUT 调短，并读回校验；8 秒后还亮着就进「黑屏兜底」（窗口亮度 0）。
+2. 夜里进程被杀：15 秒心跳落盘 + 早上「门禁已过且心跳断过」→ 自动补记一觉（标「自动补记」）。
+3. 「到点才出现的按钮」不能在创建布局时按条件决定建不建 —— 要常驻创建（GONE）再切 visibility，
+   否则到点永远不出现（v2.27 的真实 bug）。
+4. 「这一觉结束了」要落时间戳（morningMs）而不是只把界面关掉，否则每个拉起入口都会把用户
+   重新锁回去；所有入口统一走 shouldLockNow()。
+5. minSdk 24：不能用 java.time，日期一律 java.util.Calendar。
+6. Ui.space(c, Int) 收 Int、Ui.dp(c, Float) 收 Float，传错直接编译失败。
