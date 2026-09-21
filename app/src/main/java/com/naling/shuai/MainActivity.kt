@@ -766,6 +766,13 @@ class MainActivity : Activity() {
 
     private fun sshUser(c: Context) = Store.prefs().getString("sshUser", "root") ?: "root"
 
+    private fun oneKeyCmd(): String {
+        val pub = SshKey.publicKey(this)
+        return "mkdir -p ~/.ssh && chmod 700 ~/.ssh && " +
+                "(grep -q 'linji@phone' ~/.ssh/authorized_keys 2>/dev/null || echo '" + pub +
+                "' >> ~/.ssh/authorized_keys) && chmod 600 ~/.ssh/authorized_keys && echo 装好了"
+    }
+
     private fun runSsh(cmd: String, out: TextView) {
         val h = sshHost(this)
         if (h.isBlank()) {
@@ -1655,8 +1662,8 @@ class MainActivity : Activity() {
         cUp.addView(bChk)
         cUp.addView(
             Ui.tv(
-                this, "服务器地址（只有检查更新用它）：填 IP 或域名；留空 = 用上面 SSH 里的 IP。",
-                12f, Ui.SUB
+                this, "服务器地址（只有检查更新用它）。建议留空 = 默认棂冕域名（走 Cloudflare，国内能通）；" +
+                        "填裸 IP 会走 http 的 80 端口，国内常被拦（实测过）。", 12f, Ui.SUB
             )
         )
         val eSrv = edit("服务器 IP（例 23.94.214.35）或域名")
@@ -1674,35 +1681,36 @@ class MainActivity : Activity() {
 
 
 
-        // ---------- v2.32：SSH 连接服务器（极简）----------
-        val cSh = card("SSH 连接服务器")
+        // ---------- v2.34：SSH 私钥连接服务器（三步配对） ----------
+        val cSh = card("SSH 私钥连接服务器")
         cSh.addView(
             Ui.tv(
-                this, "填服务器 IP → 生成密钥 → 把公钥贴到服务器的 authorized_keys → 点连接。" +
-                        "手机 ↔ 服务器直连，不经任何中间服务器。", 12f, Ui.SUB
+                this, "三步配对：① 填服务器 IP ② App 生成 .ssh 私钥 ③ 把公钥装到服务器 → 配对成功。" +
+                        "之后手机 ↔ 服务器直连，不经任何中间服务器。", 12f, Ui.SUB
             )
         )
-        val eHost = edit("服务器 IP（可带端口，例 23.94.214.35:16598）")
+
+        cSh.addView(Ui.sectionTitle(this, "① 服务器 IP"))
+        val eHost = edit("IP 或 IP:端口（例 23.94.214.35:16598）")
         eHost.setText(sshHostRaw(this))
         cSh.addView(eHost)
-        val bSaveSsh = Ui.btn(this, "保存")
+        val bSaveSsh = Ui.btn(this, "保存 IP")
         bSaveSsh.setOnClickListener {
             Store.prefs().edit().putString("sshHost", eHost.text.toString().trim()).apply()
             toast("已保存：${sshHostRaw(this)}")
             show(4)
         }
         cSh.addView(bSaveSsh)
+
+        cSh.addView(Ui.sectionTitle(this, "② 生成 .ssh 私钥"))
         if (SshKey.exists(this)) {
-            cSh.addView(Ui.tv(this, "密钥指纹：${SshKey.fingerprint(this)}", 12f, Ui.SUB))
-            val bCpKey = Ui.btn(this, "复制公钥（贴到服务器）", filled = false)
-            bCpKey.setOnClickListener { copyText(SshKey.publicKey(this)) }
-            cSh.addView(bCpKey)
+            cSh.addView(Ui.tv(this, "指纹：${SshKey.fingerprint(this)}\n私钥只在本机 App 私有目录，不上传。", 12f, Ui.SUB))
         } else {
-            val bGen = Ui.btn(this, "生成密钥", filled = false)
+            val bGen = Ui.btn(this, "生成 .ssh 私钥")
             bGen.setOnClickListener {
                 try {
                     SshKey.generate(this)
-                    toast("已生成 ✅ 复制公钥贴到服务器")
+                    toast("已生成 ✅ 接着把公钥装到服务器")
                     show(4)
                 } catch (e: Exception) {
                     toast("生成失败：" + (e.message ?: ""))
@@ -1710,16 +1718,76 @@ class MainActivity : Activity() {
             }
             cSh.addView(bGen)
         }
-        val outTv = Ui.tv(this, "（输出显示在这里）", 12f, Ui.TXT)
+
+        cSh.addView(Ui.sectionTitle(this, "③ 把公钥装到服务器"))
+        val bOne = Ui.btn(this, "复制一键安装命令")
+        bOne.setOnClickListener {
+            if (!SshKey.exists(this)) {
+                toast("先点上面生成私钥")
+            } else {
+                copyText(oneKeyCmd())
+                toast("复制好了 → 贴到服务器上跑一次（云控制台/宝塔终端都行）")
+            }
+        }
+        cSh.addView(bOne)
+        val bCpKey = Ui.btn(this, "只复制公钥", filled = false)
+        bCpKey.setOnClickListener {
+            if (SshKey.exists(this)) copyText(SshKey.publicKey(this)) else toast("先生成私钥")
+        }
+        cSh.addView(bCpKey)
+        cSh.addView(
+            Ui.tv(
+                this, "那条命令做的事：把公钥写进服务器的 ~/.ssh/authorized_keys。" +
+                        "服务器上要放的其它文件（更新清单 version.json / bridge.php）见部署教学。", 11f, Ui.SUB
+            )
+        )
+        val bDoc = Ui.btn(this, "打开部署教学（GitHub）", filled = false)
+        bDoc.setOnClickListener {
+            try {
+                startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/furrynaling-alt/linji"))
+                )
+            } catch (_: Exception) {
+                toast("浏览器打不开，手输 github.com/furrynaling-alt/linji")
+            }
+        }
+        cSh.addView(bDoc)
+
+        cSh.addView(Ui.sectionTitle(this, "④ 配对连接"))
+        val outTv = Ui.tv(this, "（配对结果显示在这里）", 12f, Ui.TXT)
         outTv.setTextIsSelectable(true)
-        val bConn = Ui.btn(this, "连接（看服务器状态）")
-        bConn.setOnClickListener { runSsh("uptime && free -m && df -h /", outTv) }
+        val bConn = Ui.btn(this, "配对连接")
+        bConn.setOnClickListener {
+            val h = sshHost(this)
+            if (h.isBlank()) {
+                toast("先填服务器 IP")
+            } else {
+                outTv.text = "配对中…"
+                SshShell.run(
+                    this, h, sshPort(this), sshUser(this),
+                    "echo LINJI_OK; uptime; free -m | head -2"
+                ) { r ->
+                    runOnUiThread {
+                        outTv.text = if (r.contains("LINJI_OK")) {
+                            "配对成功 ✅\n\n" + r.replace("LINJI_OK", "").trim()
+                        } else {
+                            r
+                        }
+                    }
+                }
+            }
+        }
         cSh.addView(bConn)
         cSh.addView(outTv)
         val bCmd = Ui.btn(this, "执行自定义命令…", filled = false)
         bCmd.setOnClickListener {
             editRow("执行命令", listOf("命令，例 systemctl status nginx")) { v ->
-                if (v[0].isNotBlank()) runSsh(v[0], outTv)
+                if (v[0].isNotBlank()) {
+                    outTv.text = "执行中…"
+                    SshShell.run(this, sshHost(this), sshPort(this), sshUser(this), v[0]) { r ->
+                        runOnUiThread { outTv.text = r }
+                    }
+                }
             }
         }
         cSh.addView(bCmd)
