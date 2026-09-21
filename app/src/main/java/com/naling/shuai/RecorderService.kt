@@ -222,7 +222,7 @@ class RecorderService : Service() {
                 this, 94,
                 Notify.build(
                     this, Notify.CH_LOCK, "录像启动失败",
-                    "去「设置 → 熄屏录像」看「上次录像日志」（可一键复制发作者）"
+                    "去「设置 → 熄屏录像」看「上次录像日志」（可一键复制发纳棂）"
                 )
             )
             stopSelf()

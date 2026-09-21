@@ -231,7 +231,10 @@ object Store {
 
     fun serverBase(): String {
         val raw = (sp.getString("serverBase", "") ?: "").trim().trimEnd('/')
-        if (raw.isBlank()) return "https://furry.gov.naling.net"
+        if (raw.isBlank()) {
+            val h = (sp.getString("sshHost", "") ?: "").trim().substringBefore(":")
+            return if (h.isBlank()) "https://furry.gov.naling.net" else "http://" + h
+        }
         if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
         val ipOnly = raw.matches(Regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]+)?$"))
         return (if (ipOnly) "http://" else "https://") + raw

@@ -11,24 +11,19 @@ android {
         applicationId "com.naling.shuai"
         minSdk 24
         targetSdk 34
-        versionCode 41
-        versionName "2.31"
+        versionCode 42
+        versionName "2.32"
         resConfigs "zh"
     }
 
     signingConfigs {
         plain {
             // 有钥匙才挂签名（少了钥匙也能编，只是用系统默认 debug 签名）
-            // 自己出正式包：app/shuai.keystore + app/keystore.properties（storePassword/keyAlias/keyPassword）
             if (file('shuai.keystore').exists()) {
-                def kp = new Properties()
-                if (file('keystore.properties').exists()) {
-                    file('keystore.properties').withInputStream { kp.load(it) }
-                }
                 storeFile file('shuai.keystore')
-                storePassword kp.getProperty('storePassword', 'android')
-                keyAlias kp.getProperty('keyAlias', 'androiddebugkey')
-                keyPassword kp.getProperty('keyPassword', 'android')
+                storePassword 'shuai123456'
+                keyAlias 'shuai'
+                keyPassword 'shuai123456'
             }
         }
     }

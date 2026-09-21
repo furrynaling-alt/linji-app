@@ -16,7 +16,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * 棂记 v2.17 · 检查版本 + 应用内更新（2026-09-21 作者要求）
+ * 棂记 v2.17 · 检查版本 + 应用内更新（2026-09-21 纳棂要求）
  *  清单（HTTPS）：{"versionCode":27,"versionName":"2.17","note":"...","url":"...apk","md5":"..."}
  *  流程：比对 versionCode → 提示 → 下载到私有目录 → 交给系统安装器
  *  ⚠️ 不用 androidx（本 App 零依赖）→ 自己写一个极简 ContentProvider 提供 content:// 给安装器，
@@ -24,7 +24,7 @@ import java.net.URL
  */
 object Update {
 
-    /** 更新清单地址（跟着设置里的服务器地址走） */
+    /** 更新清单地址（跟着设置里的服务器地址走；留空 = 默认棂冕服务器） */
     fun manifest(c: Context): String = Store.serverBase() + "/linji/version.json"
 
     class Info(val versionCode: Int, val versionName: String, val note: String,

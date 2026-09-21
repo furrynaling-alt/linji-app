@@ -11,7 +11,7 @@ import java.security.SecureRandom
 import java.security.interfaces.RSAPublicKey
 
 /**
- * 棂记 v2.17 · SSH 密钥生成（2026-09-21 作者要求）
+ * 棂记 v2.17 · SSH 密钥生成（2026-09-21 纳棂要求）
  *  - RSA-2048（minSdk 24 兼容；Ed25519 需要 API 33+，故不用）
  *  - 公钥 → OpenSSH 格式（ssh-rsa AAAA... 备注），可直接贴进服务器 authorized_keys
  *  - 私钥 → PKCS#8（PEM 文本），OpenSSH 7.8+ 可用

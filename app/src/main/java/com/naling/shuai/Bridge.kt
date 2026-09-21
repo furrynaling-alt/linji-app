@@ -12,7 +12,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * 棂记 v2.17 · App 桥（MCP 风格的「服务器 AI ↔ App」通道，2026-09-21 作者要求）
+ * 棂记 v2.17 · App 桥（MCP 风格的「服务器 AI ↔ App」通道，2026-09-21 纳棂要求）
  *
  * 为什么这么设计（不是标准 MCP server 反向连手机）：
  *   手机在运营商 NAT 后面，服务器**无法**主动连它；开反向端口/隧道既不安全也不稳。
@@ -26,7 +26,7 @@ import java.net.URL
  */
 object Bridge {
 
-    fun urlDefault(c: Context) = Store.serverBase() + "/linji/bridge.php"
+    fun urlDefault(c: Context): String = Store.serverBase() + "/linji/bridge.php"
 
     private var th: Thread? = null
     @Volatile private var stop = false
@@ -99,6 +99,11 @@ object Bridge {
 
     /** 一轮同步：上报状态 + 收取指令 */
     private fun sync(c: Context) {
+        val u = url(c)
+        if (u.isBlank()) {
+            sp(c).edit().putString("bridgeLast", "未填服务器").apply()
+            return
+        }
         val up = JSONObject().apply {
             put("v", 1)
             put("device", Build.MODEL)
@@ -106,7 +111,7 @@ object Bridge {
             put("status", status(c))
             put("acks", acks(c))
         }
-        val conn = (URL(url(c)).openConnection() as HttpURLConnection).apply {
+        val conn = (URL(u).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 8000; readTimeout = 8000
             doOutput = true

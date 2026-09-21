@@ -10,7 +10,7 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * 棂记 v2.17 · 加密导出格式 .linji（2026-09-21 作者要求：导出不再是 .json）
+ * 棂记 v2.17 · 加密导出格式 .linji（2026-09-21 纳棂要求：导出不再是 .json）
  *  文件结构： [魔数 "LINJI1"(6B)] [盐 16B] [IV 12B] [AES-256-GCM 密文+16B tag]
  *  口令派生： PBKDF2-HMAC-SHA256（老系统自动回退 SHA1），20 万次
  *  → 没有口令打不开；同一套口径与 agent-keynl 一致（AES-256-GCM + PBKDF2）

@@ -59,7 +59,7 @@ class MainActivity : Activity() {
     }
 
     private fun enabledTabs(): List<Int> {
-        // 2026-09-21 作者定（棂记 v2.16）：底部固定 4 个入口 —— 首页 / 便签 / 工资 / 设置
+        // 2026-09-21 纳棂定（棂记 v2.16）：底部固定 4 个入口 —— 首页 / 便签 / 工资 / 设置
         // 其余功能（番茄钟·用药提醒·记账·统计·今日概览）从「设置 → 更多功能」进，不再占导航
         return listOf(0, 2, 5, 4)
     }
@@ -757,15 +757,25 @@ class MainActivity : Activity() {
     // ---------- v2.17：开发者模式 / 检查更新 ----------
     private var verTaps = 0
 
-    private fun sshHost(c: Context) = Store.prefs().getString("sshHost", "23.94.214.35") ?: ""
-    private fun sshPort(c: Context) = Store.prefs().getInt("sshPort", 16598)
-    private fun sshUser(c: Context) = Store.prefs().getString("sshUser", "root") ?: "root"
-    private fun sshCmd(c: Context) =
-        Store.prefs().getString("sshCmd", "uptime && free -m && df -h /") ?: ""
+    private fun sshHostRaw(c: Context) =
+        Store.prefs().getString("sshHost", "23.94.214.35:16598") ?: ""
 
-    private fun setSsh(h: String, p: Int, u: String) {
-        Store.prefs().edit().putString("sshHost", h).putInt("sshPort", p)
-            .putString("sshUser", u).apply()
+    private fun sshHost(c: Context) = sshHostRaw(c).substringBefore(":").trim()
+    private fun sshPort(c: Context) =
+        sshHostRaw(c).substringAfter(":", "").trim().toIntOrNull() ?: 22
+
+    private fun sshUser(c: Context) = Store.prefs().getString("sshUser", "root") ?: "root"
+
+    private fun runSsh(cmd: String, out: TextView) {
+        val h = sshHost(this)
+        if (h.isBlank()) {
+            toast("先在设置里填服务器 IP")
+            return
+        }
+        out.text = "连接中…"
+        SshShell.run(this, h, sshPort(this), sshUser(this), cmd) { r ->
+            runOnUiThread { out.text = r }
+        }
     }
 
     private fun diagText(): String = "版本 ${Update.curVersionName(this)}（build ${Update.curVersionCode(this)}）\n" +
@@ -1629,30 +1639,8 @@ class MainActivity : Activity() {
         cB.addView(br)
         col.addView(cB)
 
-        // ---------- v2.30：服务器地址（填 IP 就行） ----------
-        val cSrv = card("服务器")
-        cSrv.addView(
-            Ui.tv(
-                this, "更新和 App 桥都走这个地址。填 IP 或域名即可，例如 23.94.214.35。" +
-                        "别人用你的安装包，就在这儿改成他自己的服务器；留空 = 默认的棂冕服务器。",
-                12f, Ui.SUB
-            )
-        )
-        val eSrv = edit("IP 或域名（留空=默认）")
-        eSrv.setText(Store.serverBaseRaw())
-        cSrv.addView(eSrv)
-        val bSrv = Ui.btn(this, "保存服务器")
-        bSrv.setOnClickListener {
-            Store.setServerBase(eSrv.text.toString())
-            toast("服务器：${Store.serverBase()}")
-            show(4)
-        }
-        cSrv.addView(bSrv)
-        cSrv.addView(Ui.tv(this, "当前生效：${Store.serverBase()}", 11f, Ui.SUB))
-        col.addView(cSrv)
-
-        // ---------- v2.17：版本与更新 ----------
-        val cUp = card("版本与更新")
+        // ---------- v2.32：更新（服务器地址只给检查更新用）----------
+        val cUp = card("检查更新")
         val vRow = Ui.row(this)
         vRow.setPadding(0, Ui.dp(this, 4f), 0, Ui.dp(this, 4f))
         val vTv = Ui.tv(this, "棂记 v${Update.curVersionName(this)}（build ${Update.curVersionCode(this)}）" +
@@ -1665,141 +1653,76 @@ class MainActivity : Activity() {
         val bChk = Ui.btn(this, "检查更新")
         bChk.setOnClickListener { doCheckUpdate(true) }
         cUp.addView(bChk)
-        cUp.addView(Ui.tv(this, "更新清单：${Update.manifest(this)}", 11f, Ui.SUB))
+        cUp.addView(
+            Ui.tv(
+                this, "服务器地址（只有检查更新用它）：填 IP 或域名；留空 = 用上面 SSH 里的 IP。",
+                12f, Ui.SUB
+            )
+        )
+        val eSrv = edit("服务器 IP（例 23.94.214.35）或域名")
+        eSrv.setText(Store.serverBaseRaw())
+        cUp.addView(eSrv)
+        val bSrv = Ui.btn(this, "保存服务器", filled = false)
+        bSrv.setOnClickListener {
+            Store.setServerBase(eSrv.text.toString())
+            toast("服务器：${Store.serverBase()}")
+            show(4)
+        }
+        cUp.addView(bSrv)
+        cUp.addView(Ui.tv(this, "当前生效：${Store.serverBase()}", 11f, Ui.SUB))
         col.addView(cUp)
 
-        // ---------- v2.17：SSH 密钥 ----------
-        val cSsh = card("SSH 密钥")
-        cSsh.addView(
-            Ui.tv(this, "在本机生成 RSA-2048。公钥可以直接贴到服务器 ~/.ssh/authorized_keys；" +
-                    "私钥只存在 App 私有目录，不联网、不上传。", 12f, Ui.SUB)
-        )
-        val bSshGen = Ui.btn(this, if (SshKey.exists(this)) "重新生成密钥" else "生成密钥")
-        bSshGen.setOnClickListener {
-            try {
-                SshKey.generate(this)
-                toast("已生成 ✅")
-                show(4)
-            } catch (e: Exception) {
-                toast("生成失败：" + (e.message ?: ""))
-            }
-        }
-        cSsh.addView(bSshGen)
-        if (SshKey.exists(this)) {
-            cSsh.addView(Ui.tv(this, "指纹：${SshKey.fingerprint(this)}", 12f, Ui.SUB))
-            val bCp = Ui.btn(this, "复制公钥", filled = false)
-            bCp.setOnClickListener {
-                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("ssh-pub", SshKey.publicKey(this)))
-                toast("公钥已复制 → 贴进服务器 authorized_keys")
-            }
-            cSsh.addView(bCp)
-            cSsh.addView(Ui.tv(this, "公钥：\n" + SshKey.publicKey(this), 11f, Ui.TXT))
-            cSsh.addView(
-                Ui.tv(this, "私钥（PKCS#8）：\n${SshKey.privatePath(this)}\n\n" +
-                        "Termux 里转成 OpenSSH 私钥：\n" +
-                        "ssh-keygen -i -m PKCS8 -f linji_rsa_pkcs8.pem > ~/.ssh/id_rsa\n" +
-                        "chmod 600 ~/.ssh/id_rsa", 11f, Ui.SUB)
-            )
-        }
-        col.addView(cSsh)
 
-        // ---------- v2.31：App 桥（直接放设置，不用连点版本号） ----------
-        val cBr = card("App 桥（手机 ↔ 服务器）")
-        val rowB = Ui.row(this)
-        rowB.setPadding(0, Ui.dp(this, 6f), 0, Ui.dp(this, 6f))
-        val lbB = Ui.tv(this, "打开后每 30 秒同步一次", 15f, Ui.TXT)
-        lbB.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        val swB = Switch(this)
-        swB.isChecked = Bridge.enabled(this)
-        swB.setOnCheckedChangeListener { _, v ->
-            Bridge.setEnabled(this, v)
-            if (v) {
-                Bridge.start(this)
-                toast("桥已开：每 30 秒同步一次")
-            } else {
-                Bridge.stop()
-                toast("桥已关")
-            }
-        }
-        rowB.addView(lbB)
-        rowB.addView(swB)
-        cBr.addView(rowB)
-        cBr.addView(
-            Ui.tv(
-                this, "地址：${Bridge.url(this)}\n令牌：" +
-                        (if (Bridge.token(this).isBlank()) "未设置（服务器会拒收）" else "已设置") +
-                        "\n上次同步：${Bridge.lastSync(this)}", 12f, Ui.SUB
-            )
-        )
-        val bSetB = Ui.btn(this, "设置令牌", filled = false)
-        bSetB.setOnClickListener {
-            val colD = LinearLayout(this)
-            colD.orientation = LinearLayout.VERTICAL
-            colD.setPadding(Ui.dp(this, 16f), Ui.dp(this, 8f), Ui.dp(this, 16f), 0)
-            val etU = EditText(this); etU.hint = "桥地址（默认跟上面的服务器走）"; etU.setText(Bridge.url(this))
-            val etT = EditText(this); etT.hint = "令牌（和服务器 bridge.php 里的一致）"; etT.setText(Bridge.token(this))
-            colD.addView(etU); colD.addView(etT)
-            AlertDialog.Builder(this).setTitle("App 桥设置").setView(colD)
-                .setPositiveButton("保存") { _, _ ->
-                    Bridge.setUrl(this, etU.text.toString().trim())
-                    Bridge.setToken(this, etT.text.toString().trim())
-                    toast("已保存")
-                    show(4)
-                }
-                .setNegativeButton("取消", null).show()
-        }
-        cBr.addView(bSetB)
-        val bSync = Ui.btn(this, "立即同步一次", filled = false)
-        bSync.setOnClickListener {
-            toast("同步中…")
-            Bridge.manualSync(this) { msg -> runOnUiThread { toast(msg) } }
-        }
-        cBr.addView(bSync)
-        cBr.addView(Ui.tv(this, "开了桥：服务器能看睡眠/待办/电量，也能给你加待办、发通知、改睡觉时间；关掉就完全离线。", 11f, Ui.SUB))
-        col.addView(cBr)
 
-        // ---------- v2.31：SSH 连接服务器 ----------
+        // ---------- v2.32：SSH 连接服务器（极简）----------
         val cSh = card("SSH 连接服务器")
-        cSh.addView(Ui.tv(this, "用「SSH 密钥」那把钥匙直接连服务器执行命令（跟电脑上 ssh 一样）。", 12f, Ui.SUB))
-        val rowQ = Ui.row(this)
-        val bQ1 = Ui.btn(this, "美机", filled = false, small = true)
-        bQ1.setOnClickListener { setSsh("23.94.214.35", 16598, "root"); show(4) }
-        val bQ2 = Ui.btn(this, "港机", filled = false, small = true)
-        bQ2.setOnClickListener { setSsh("185.216.118.103", 16816, "root"); show(4) }
-        rowQ.addView(bQ1); rowQ.addView(bQ2)
-        cSh.addView(rowQ)
-        val eHost = edit("主机 IP 或域名（现在 " + sshHost(this) + "）")
-        val ePort = edit("端口（现在 " + sshPort(this) + "）", InputType.TYPE_CLASS_NUMBER)
-        val eUser = edit("用户名（现在 " + sshUser(this) + "）")
-        cSh.addView(eHost); cSh.addView(ePort); cSh.addView(eUser)
-        val bSaveSsh = Ui.btn(this, "保存连接信息", filled = false)
+        cSh.addView(
+            Ui.tv(
+                this, "填服务器 IP → 生成密钥 → 把公钥贴到服务器的 authorized_keys → 点连接。" +
+                        "手机 ↔ 服务器直连，不经任何中间服务器。", 12f, Ui.SUB
+            )
+        )
+        val eHost = edit("服务器 IP（可带端口，例 23.94.214.35:16598）")
+        eHost.setText(sshHostRaw(this))
+        cSh.addView(eHost)
+        val bSaveSsh = Ui.btn(this, "保存")
         bSaveSsh.setOnClickListener {
-            Store.prefs().edit().putString("sshHost", eHost.text.toString().trim())
-                .putInt("sshPort", ePort.text.toString().toIntOrNull() ?: 22)
-                .putString("sshUser", eUser.text.toString().trim()).apply()
-            toast("已保存")
+            Store.prefs().edit().putString("sshHost", eHost.text.toString().trim()).apply()
+            toast("已保存：${sshHostRaw(this)}")
             show(4)
         }
         cSh.addView(bSaveSsh)
-        val eCmd = edit("要执行的命令，例如 uptime && free -m")
-        eCmd.setText(sshCmd(this))
-        cSh.addView(eCmd)
+        if (SshKey.exists(this)) {
+            cSh.addView(Ui.tv(this, "密钥指纹：${SshKey.fingerprint(this)}", 12f, Ui.SUB))
+            val bCpKey = Ui.btn(this, "复制公钥（贴到服务器）", filled = false)
+            bCpKey.setOnClickListener { copyText(SshKey.publicKey(this)) }
+            cSh.addView(bCpKey)
+        } else {
+            val bGen = Ui.btn(this, "生成密钥", filled = false)
+            bGen.setOnClickListener {
+                try {
+                    SshKey.generate(this)
+                    toast("已生成 ✅ 复制公钥贴到服务器")
+                    show(4)
+                } catch (e: Exception) {
+                    toast("生成失败：" + (e.message ?: ""))
+                }
+            }
+            cSh.addView(bGen)
+        }
         val outTv = Ui.tv(this, "（输出显示在这里）", 12f, Ui.TXT)
         outTv.setTextIsSelectable(true)
-        val bRun = Ui.btn(this, "执行")
-        bRun.setOnClickListener {
-            val host = eHost.text.toString().trim().ifBlank { sshHost(this) }
-            val port = ePort.text.toString().toIntOrNull() ?: sshPort(this)
-            val user = eUser.text.toString().trim().ifBlank { sshUser(this) }
-            val cmd = eCmd.text.toString().trim().ifBlank { "uptime" }
-            Store.prefs().edit().putString("sshHost", host).putInt("sshPort", port)
-                .putString("sshUser", user).putString("sshCmd", cmd).apply()
-            outTv.text = "连接中…"
-            SshShell.run(this, host, port, user, cmd) { r -> runOnUiThread { outTv.text = r } }
-        }
-        cSh.addView(bRun)
+        val bConn = Ui.btn(this, "连接（看服务器状态）")
+        bConn.setOnClickListener { runSsh("uptime && free -m && df -h /", outTv) }
+        cSh.addView(bConn)
         cSh.addView(outTv)
+        val bCmd = Ui.btn(this, "执行自定义命令…", filled = false)
+        bCmd.setOnClickListener {
+            editRow("执行命令", listOf("命令，例 systemctl status nginx")) { v ->
+                if (v[0].isNotBlank()) runSsh(v[0], outTv)
+            }
+        }
+        cSh.addView(bCmd)
         val bCpCmd = Ui.btn(this, "复制 ssh 命令（Termux 用）", filled = false)
         bCpCmd.setOnClickListener {
             copyText("ssh -p " + sshPort(this) + " " + sshUser(this) + "@" + sshHost(this))
