@@ -1,0 +1,65 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.naling.shuai'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.naling.shuai"
+        minSdk 24
+        targetSdk 34
+        versionCode 41
+        versionName "2.31"
+        resConfigs "zh"
+    }
+
+    signingConfigs {
+        plain {
+            // 有钥匙才挂签名（少了钥匙也能编，只是用系统默认 debug 签名）
+            // 自己出正式包：app/shuai.keystore + app/keystore.properties（storePassword/keyAlias/keyPassword）
+            if (file('shuai.keystore').exists()) {
+                def kp = new Properties()
+                if (file('keystore.properties').exists()) {
+                    file('keystore.properties').withInputStream { kp.load(it) }
+                }
+                storeFile file('shuai.keystore')
+                storePassword kp.getProperty('storePassword', 'android')
+                keyAlias kp.getProperty('keyAlias', 'androiddebugkey')
+                keyPassword kp.getProperty('keyPassword', 'android')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            if (file('shuai.keystore').exists()) signingConfig signingConfigs.plain
+        }
+        release {
+            minifyEnabled false
+            if (file('shuai.keystore').exists()) signingConfig signingConfigs.plain
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    // Shizuku：通过无线调试拿 shell 权限 → 真·按电源键熄屏（不锁屏）
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
+    // SSH 连接服务器（纯 Java，无 AndroidX 依赖）
+    implementation 'com.github.mwiede:jsch:0.2.18'
+}
