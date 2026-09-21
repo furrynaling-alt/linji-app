@@ -69,13 +69,28 @@ object Bridge {
                 } catch (_: Exception) {
                 }
                 try {
-                    Thread.sleep(if (enabled(app)) 30_000L else 15_000L)
+                    Thread.sleep(if (enabled(app)) 20_000L else 15_000L)
                 } catch (_: InterruptedException) {
                     break
                 }
             }
             th = null
         }.also { it.isDaemon = true; it.name = "linji-bridge"; it.start() }
+    }
+
+    fun syncNow(c: Context) {
+        if (!enabled(c)) return
+        val app = c.applicationContext
+        Thread {
+            try {
+                sync(app)
+            } catch (_: Exception) {
+            }
+        }.start()
+    }
+
+    fun ensureStarted(c: Context) {
+        if (enabled(c)) start(c)
     }
 
     fun stop() {

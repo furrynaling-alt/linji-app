@@ -238,5 +238,6 @@ class BootReceiver : BroadcastReceiver() {
         Alarms.scheduleAll(c)
         // 如果现在正处于锁机时段，重启后也恢复锁机
         if (LockService.shouldLockNow()) LockService.start(c)
+        Bridge.ensureStarted(c)
     }
 }

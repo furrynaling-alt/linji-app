@@ -175,6 +175,15 @@ class MainActivity : Activity() {
         rebuildNav()
         // v2.17：App 桥（服务器 AI 控制/监督）—— 默认关，开发者模式里开
         if (Bridge.enabled(this)) Bridge.start(this)
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    Bridge.syncNow(this@MainActivity)
+                }
+            })
+        } catch (_: Exception) {
+        }
     }
 
     private fun rebuildNav() {
@@ -765,6 +774,49 @@ class MainActivity : Activity() {
         sshHostRaw(c).substringAfter(":", "").trim().toIntOrNull() ?: 22
 
     private fun sshUser(c: Context) = Store.prefs().getString("sshUser", "root") ?: "root"
+
+    private fun aiPrompt(): String {
+        val pub = SshKey.publicKey(this)
+        val h = sshHost(this)
+        val pt = sshPort(this)
+        val usr = sshUser(this)
+        return "你是我的服务器运维助手。请帮我把「手机 App 棂记 ↔ 这台服务器」配好，并把部署文件装上。" +
+                "每步请给我【命令 + 预期输出】，我照贴照跑；出错就按你给的排错走。\n" +
+                "\n===== 环境 =====\n" +
+                "服务器：$h   端口 $pt   用户 $usr\n" +
+                "手机 App 已生成密钥，公钥（整行，别换行别加引号）：\n" + pub + "\n" +
+                "\n===== 仓库 =====\n" +
+                "① 部署文件仓（教程 README + bridge.php + server.js + nginx-linji.conf + version.json 示例）：\n" +
+                "   https://github.com/furrynaling-alt/linji\n" +
+                "② App 源码 / APK 仓：\n" +
+                "   https://github.com/furrynaling-alt/linji-app\n" +
+                "   国内慢就用直链：https://furry.gov.naling.net/linji/linji-2.36.apk\n" +
+                "\n===== 第一部分：配对（必做）=====\n" +
+                "1) 确认 sshd 在跑且监听 $pt：ss -tlnp | grep $pt       预期 LISTEN 0.0.0.0:$pt\n" +
+                "2) 把公钥写进 $usr 的 authorized_keys（幂等，别重复写）：\n" +
+                "   mkdir -p ~/.ssh && chmod 700 ~/.ssh && (grep -q 'linji@phone' ~/.ssh/authorized_keys 2>/dev/null || echo '" + pub + "' >> ~/.ssh/authorized_keys) && chmod 600 ~/.ssh/authorized_keys\n" +
+                "   预期 无报错；grep -c linji@phone ~/.ssh/authorized_keys 输出 >=1\n" +
+                "3) 确认允许公钥登录：sshd -T | grep -E \"^pubkeyauthentication|^permitrootlogin\"    预期 pubkeyauthentication yes\n" +
+                "4) 验证：从另一台机器 ssh -o StrictHostKeyChecking=no -p $pt $usr@$h 'echo OK'      预期 直接输出 OK，不提示密码\n" +
+                "\n===== 第二部分：装部署文件（可选；想要「检查更新 / 手机↔服务器通道」才要）=====\n" +
+                "5) 拉文件（二选一）：\n" +
+                "   git clone https://github.com/furrynaling-alt/linji.git /opt/linji\n" +
+                "   或下载 release：https://github.com/furrynaling-alt/linji/releases/latest （linji-deploy.zip）\n" +
+                "6) 放进站点目录：mkdir -p /www/wwwroot/<你的站点>/linji\n" +
+                "   cp /opt/linji/bridge.php /www/wwwroot/<你的站点>/linji/\n" +
+                "   把 linji-x.y.apk 也放进去；再写 version.json（versionCode/versionName/note/url/md5，md5 用 md5sum 算）\n" +
+                "7) nginx 站点配置里加（改完 nginx -t && systemctl reload nginx）：\n" +
+                "   location ^~ /linji/ { root /www/wwwroot/<你的站点>; }\n" +
+                "8) 想用桥再加 PHP 版（bridge.php 直接就能用，不用起服务）或 Node 版：\n" +
+                "   cd /opt/linji && printf '%s\\n' '你的口令' > token.txt && chmod 600 token.txt && npm i -g pm2 && pm2 start server.js --name linji-bridge && pm2 save\n" +
+                "   验证：curl -s https://<你的域名或IP>/linji/version.json        预期 返回 JSON\n" +
+                "         curl -s -X POST https://<域名>/linji/bridge.php -H 'X-Linji-Token: 你的口令' -d '{}'    预期 {\"cmds\":[]}\n" +
+                "\n===== 排错 =====\n" +
+                "- Permission denied (publickey)：~/.ssh 权限 700、authorized_keys 600，用户必须是 $usr\n" +
+                "- 连不上/超时：云安全组 + 本机防火墙放行 $pt（nftables: nft add rule inet filter input tcp dport $pt accept）\n" +
+                "- 手机端对应位置：设置 → SSH 私钥连接服务器 → ①填 $h:$pt ②生成私钥 ③装公钥 ④点「配对连接」\n" +
+                "做完把每步实际输出贴给我。"
+    }
 
     private fun oneKeyCmd(): String {
         val pub = SshKey.publicKey(this)
@@ -1681,6 +1733,66 @@ class MainActivity : Activity() {
 
 
 
+        // ---------- v2.38：App 桥（手机 ↔ 服务器 自动同步，像 TG 那样上线就收） ----------
+        val cBr = card("App 桥（自动同步）")
+        val rowB = Ui.row(this)
+        rowB.setPadding(0, Ui.dp(this, 6f), 0, Ui.dp(this, 6f))
+        val lbB = Ui.tv(this, "开着就自动收服务器发来的东西", 15f, Ui.TXT)
+        lbB.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        val swB = Switch(this)
+        swB.isChecked = Bridge.enabled(this)
+        swB.setOnCheckedChangeListener { _, v ->
+            Bridge.setEnabled(this, v)
+            if (v) {
+                Bridge.start(this)
+                toast("桥已开：每 20 秒同步一次，联网/开机自动续上")
+            } else {
+                Bridge.stop()
+                toast("桥已关")
+            }
+        }
+        rowB.addView(lbB)
+        rowB.addView(swB)
+        cBr.addView(rowB)
+        cBr.addView(
+            Ui.tv(
+                this, "地址：${Bridge.url(this)}\n令牌：" +
+                        (if (Bridge.token(this).isBlank()) "未设置（服务器会拒收）" else "已设置") +
+                        "\n上次同步：${Bridge.lastSync(this)}", 12f, Ui.SUB
+            )
+        )
+        val bSetB = Ui.btn(this, "设置令牌", filled = false)
+        bSetB.setOnClickListener {
+            val colD = LinearLayout(this)
+            colD.orientation = LinearLayout.VERTICAL
+            colD.setPadding(Ui.dp(this, 16f), Ui.dp(this, 8f), Ui.dp(this, 16f), 0)
+            val etU = EditText(this); etU.hint = "桥地址"; etU.setText(Bridge.url(this))
+            val etT = EditText(this); etT.hint = "令牌（服务器 bridge.php / token.txt 里那个）"; etT.setText(Bridge.token(this))
+            colD.addView(etU); colD.addView(etT)
+            AlertDialog.Builder(this).setTitle("App 桥设置").setView(colD)
+                .setPositiveButton("保存") { _, _ ->
+                    Bridge.setUrl(this, etU.text.toString().trim())
+                    Bridge.setToken(this, etT.text.toString().trim())
+                    toast("已保存")
+                    show(4)
+                }
+                .setNegativeButton("取消", null).show()
+        }
+        cBr.addView(bSetB)
+        val bSync = Ui.btn(this, "立即同步一次", filled = false)
+        bSync.setOnClickListener {
+            toast("同步中…")
+            Bridge.manualSync(this) { msg -> runOnUiThread { toast(msg) } }
+        }
+        cBr.addView(bSync)
+        cBr.addView(
+            Ui.tv(
+                this, "手机离线时服务器加的东西（待办/通知）会排队留着，你一联网就自动收到；" +
+                        "开机也会自动续上，不用手动点。流量和耗电都很小。", 11f, Ui.SUB
+            )
+        )
+        col.addView(cBr)
+
         // ---------- v2.34：SSH 私钥连接服务器（三步配对） ----------
         val cSh = card("SSH 私钥连接服务器")
         cSh.addView(
@@ -1791,9 +1903,10 @@ class MainActivity : Activity() {
             }
         }
         cSh.addView(bCmd)
-        val bCpCmd = Ui.btn(this, "复制 ssh 命令（Termux 用）", filled = false)
+        val bCpCmd = Ui.btn(this, "复制 AI 提示词（让 AI 帮你配服务器）", filled = false)
         bCpCmd.setOnClickListener {
-            copyText("ssh -p " + sshPort(this) + " " + sshUser(this) + "@" + sshHost(this))
+            copyText(aiPrompt())
+            toast("复制好了 → 粘给你的 AI（马维斯/豆包/元宝都行）")
         }
         cSh.addView(bCpCmd)
         col.addView(cSh)
