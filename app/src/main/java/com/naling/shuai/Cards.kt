@@ -237,6 +237,7 @@ object Cards {
         sBox.background = Ui.round(0xFFF2F2F7.toInt(), 16, act)
         sBox.addView(Ui.icon(act, R.drawable.ic_plus, 18, Ui.RED))
         val hint = Ui.tv(act, "添加卡片 / 自定义首页", 15f, Ui.SUB)
+        hint.gravity = Gravity.CENTER
         hint.setPadding(Ui.dp(act, 10f), 0, 0, 0)
         hint.layoutParams = LinearLayout.LayoutParams(0, WRAP(), 1f)
         sBox.addView(hint)
@@ -274,6 +275,8 @@ object Cards {
             item.layoutParams = LinearLayout.LayoutParams(0, WRAP(), 1f)
             item.addView(Ui.icon(act, icon, 26, Ui.RED))
             val lb = Ui.tv(act, label, 13f, Ui.TXT)
+            lb.gravity = Gravity.CENTER
+            lb.layoutParams = LinearLayout.LayoutParams(MAP(), WRAP())
             lb.setPadding(0, Ui.dp(act, 6f), 0, 0)
             item.addView(lb)
             item.isClickable = true
@@ -668,7 +671,10 @@ object Cards {
         val box = LinearLayout(act)
         box.orientation = LinearLayout.VERTICAL
         box.setPadding(Ui.dp(act, 16f), Ui.dp(act, 8f), Ui.dp(act, 16f), 0)
-        box.addView(Ui.tv(act, HomeCharts.SRC_NAMES[src] + " · " + HomeCharts.TYPE_NAMES[ct], 13f, Ui.SUB))
+        val pvTv = Ui.tv(act, HomeCharts.SRC_NAMES[src] + " · " + HomeCharts.TYPE_NAMES[ct], 13f, Ui.SUB)
+        pvTv.gravity = Gravity.CENTER
+        pvTv.layoutParams = LinearLayout.LayoutParams(MAP(), WRAP())
+        box.addView(pvTv)
         box.addView(Ui.space(act, 6))
         box.addView(chartBody(act, src, ct))
         AlertDialog.Builder(act).setTitle("预览（不满意可取消）").setView(box)

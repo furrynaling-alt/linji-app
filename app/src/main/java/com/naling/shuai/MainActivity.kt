@@ -1867,6 +1867,10 @@ class MainActivity : Activity() {
 
         cSh.addView(Ui.sectionTitle(this, "④ 配对连接"))
         val outTv = Ui.tv(this, "（配对结果显示在这里）", 12f, Ui.TXT)
+        outTv.gravity = Gravity.START
+        outTv.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        )
         outTv.setTextIsSelectable(true)
         val bConn = Ui.btn(this, "配对连接")
         bConn.setOnClickListener {
