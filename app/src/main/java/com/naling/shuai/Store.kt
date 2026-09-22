@@ -243,6 +243,52 @@ object Store {
         sp.edit().putString("serverBase", v.trim().trimEnd('/')).apply()
     }
 
+    class PBridge(val id: Long, val name: String, val url: String, val token: String, val on: Boolean)
+
+    fun pBridges(): MutableList<PBridge> {
+        val raw = sp.getString("pBridges", "[]") ?: "[]"
+        val list = mutableListOf<PBridge>()
+        try {
+            val a = JSONArray(raw)
+            for (i in 0 until a.length()) {
+                val o = a.getJSONObject(i)
+                list.add(
+                    PBridge(
+                        o.optLong("id"), o.optString("name", "插件桥"), o.optString("url", ""),
+                        o.optString("token", ""), o.optBoolean("on", true)
+                    )
+                )
+            }
+        } catch (_: Exception) {
+        }
+        return list
+    }
+
+    fun savePBridges(list: List<PBridge>) {
+        val a = JSONArray()
+        for (b in list) {
+            a.put(JSONObject().apply {
+                put("id", b.id); put("name", b.name); put("url", b.url)
+                put("token", b.token); put("on", b.on)
+            })
+        }
+        sp.edit().putString("pBridges", a.toString()).apply()
+    }
+
+    fun addPBridge(name: String, url: String, token: String) {
+        val l = pBridges()
+        l.add(PBridge(System.currentTimeMillis(), name, url, token, true))
+        savePBridges(l)
+    }
+
+    fun updPBridge(b: PBridge) {
+        savePBridges(pBridges().map { if (it.id == b.id) b else it })
+    }
+
+    fun delPBridge(id: Long) {
+        savePBridges(pBridges().filter { it.id != id })
+    }
+
     class Note(val ts: Long, val text: String, val pin: Boolean = false)
 
     fun notes(): MutableList<Note> {

@@ -37,6 +37,10 @@ object Bridge {
     fun enabled(c: Context) = sp(c).getBoolean("bridgeOn", false)
     fun setEnabled(c: Context, v: Boolean) = sp(c).edit().putBoolean("bridgeOn", v).apply()
 
+    /** 主桥或任意插件桥开着 = 有活干（插件桥单独也能用） */
+    fun anyOn(c: Context): Boolean =
+        enabled(c) || Store.pBridges().any { it.on && it.url.isNotBlank() }
+
     fun url(c: Context) = sp(c).getString("bridgeUrl", "")?.takeIf { it.isNotBlank() } ?: urlDefault(c)
     fun setUrl(c: Context, v: String) = sp(c).edit().putString("bridgeUrl", v).apply()
 
@@ -78,11 +82,11 @@ object Bridge {
         th = Thread {
             while (!stop) {
                 try {
-                    if (enabled(app)) sync(app)
+                    if (anyOn(app)) sync(app)
                 } catch (_: Exception) {
                 }
                 try {
-                    Thread.sleep(if (enabled(app)) 20_000L else 15_000L)
+                    Thread.sleep(if (anyOn(app)) 20_000L else 15_000L)
                 } catch (_: InterruptedException) {
                     break
                 }
@@ -92,7 +96,7 @@ object Bridge {
     }
 
     fun syncNow(c: Context) {
-        if (!enabled(c)) return
+        if (!anyOn(c)) return
         val app = c.applicationContext
         Thread {
             try {
@@ -103,7 +107,7 @@ object Bridge {
     }
 
     fun ensureStarted(c: Context) {
-        if (enabled(c)) start(c)
+        if (anyOn(c)) start(c)
     }
 
     fun stop(c: Context) {
@@ -133,11 +137,29 @@ object Bridge {
         }.start()
     }
 
-    /** 一轮同步：上报状态 + 收取指令 */
+    /** 一轮同步：主桥 + 所有开着的插件桥，各自上报 / 各自收指令 */
     private fun sync(c: Context) {
-        val u = url(c)
+        try {
+            syncOne(c, url(c), token(c), 0L)
+        } catch (_: Exception) {
+        }
+        for (b in Store.pBridges()) {
+            if (!b.on || b.url.isBlank()) continue
+            try {
+                syncOne(c, b.url, b.token, b.id)
+            } catch (_: Exception) {
+            }
+        }
+        sp(c).edit().putString("bridgeAcks", "[]").apply()
+    }
+
+    private fun keyOf(id: Long): String = if (id == 0L) "bridgeLast" else "bLast_$id"
+
+    fun lastOf(c: Context, id: Long): String = sp(c).getString(keyOf(id), "-") ?: "-"
+
+    private fun syncOne(c: Context, u: String, tk: String, id: Long) {
         if (u.isBlank()) {
-            sp(c).edit().putString("bridgeLast", "未填服务器").apply()
+            sp(c).edit().putString(keyOf(id), "未填地址").apply()
             return
         }
         val up = JSONObject().apply {
@@ -152,12 +174,12 @@ object Bridge {
             connectTimeout = 8000; readTimeout = 8000
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("X-Linji-Token", token(c))
+            setRequestProperty("X-Linji-Token", tk)
         }
         conn.outputStream.use { it.write(up.toString().toByteArray(Charsets.UTF_8)) }
         val code = conn.responseCode
         val body = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else ""
-        sp(c).edit().putString("bridgeLast", nowStr() + " (HTTP $code)").apply()
+        sp(c).edit().putString(keyOf(id), nowStr() + " (HTTP $code)").apply()
         if (body.isBlank()) return
 
         val cmds = JSONObject(body).optJSONArray("cmds") ?: return
@@ -252,8 +274,6 @@ object Bridge {
                 addAck(c, id, false, "err:" + (e.message ?: ""))
             }
         }
-        // 干掉已回传的 acks（下一轮重新攒）
-        sp(c).edit().putString("bridgeAcks", "[]").apply()
     }
 
     /** 上报给服务器 AI 的状态（这就是"监督"的数据面） */

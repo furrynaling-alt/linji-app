@@ -1038,6 +1038,9 @@ object Cards {
         }
     }
 
+    /** 设置页「开发者 / 诊断」入口用：测试相册能不能读出图 */
+    fun testRead(act: MainActivity, uri: android.net.Uri, dst: File): Boolean = copyUri(act, uri, dst)
+
     /** 长按卡片：换背景 / 调位置 / 换整页背景 / 删除 */
     private fun longPressMenu(act: MainActivity, c: C) {
         AlertDialog.Builder(act).setTitle(c.title)

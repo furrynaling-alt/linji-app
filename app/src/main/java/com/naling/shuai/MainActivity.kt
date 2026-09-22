@@ -29,6 +29,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import rikka.shizuku.Shizuku
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -174,7 +175,7 @@ class MainActivity : Activity() {
 
         rebuildNav()
         // v2.17：App 桥（服务器 AI 控制/监督）—— 默认关，开发者模式里开
-        if (Bridge.enabled(this)) {
+        if (Bridge.anyOn(this)) {
             Bridge.start(this)
             Bridge.syncNow(this)          // 打开 App 就先同步一次，不用手动点
         }
@@ -263,6 +264,7 @@ class MainActivity : Activity() {
                 7 -> screenStat()
                 8 -> screenToday()
                 9 -> screenPlugins()
+                10 -> screenDev()
                 else -> screenSettings()
             }
         } catch (e: Throwable) {
@@ -878,6 +880,164 @@ class MainActivity : Activity() {
         if (f.exists()) f.readText() else "（还没有桥日志）"
     } catch (e: Exception) {
         "读取失败：" + (e.message ?: "")
+    }
+
+    private fun dialogPBridge(pb: Store.PBridge?) {
+        val colD = LinearLayout(this)
+        colD.orientation = LinearLayout.VERTICAL
+        colD.setPadding(Ui.dp(this, 16f), Ui.dp(this, 8f), Ui.dp(this, 16f), 0)
+        val etN = EditText(this)
+        etN.hint = "名字（例如 家里的服务器）"
+        etN.setText(pb?.name ?: "")
+        val etU = EditText(this)
+        etU.hint = "桥地址（https://域名/linji/bridge.php）"
+        etU.setText(pb?.url ?: "")
+        val etT = EditText(this)
+        etT.hint = "令牌（和那台服务器上的一致）"
+        etT.setText(pb?.token ?: "")
+        colD.addView(etN)
+        colD.addView(etU)
+        colD.addView(etT)
+        AlertDialog.Builder(this)
+            .setTitle(if (pb == null) "添加插件桥" else "编辑插件桥")
+            .setView(colD)
+            .setPositiveButton("保存") { _, _ ->
+                val n = etN.text.toString().trim().ifEmpty { "插件桥" }
+                val u = etU.text.toString().trim()
+                val t = etT.text.toString().trim()
+                if (u.isBlank()) {
+                    toast("地址不能空")
+                } else {
+                    if (pb == null) Store.addPBridge(n, u, t)
+                    else Store.updPBridge(Store.PBridge(pb.id, n, u, t, pb.on))
+                    Bridge.syncNow(this)
+                    toast("已保存，正在同步…")
+                    show(4)
+                }
+            }
+            .setNegativeButton("取消", null).show()
+    }
+
+    private fun allLogs(): String {
+        val sb = StringBuilder()
+        sb.append("===== 诊断信息 =====\n").append(diagText()).append("\n\n")
+        sb.append("===== 桥状态 =====\n")
+        sb.append("主桥 ").append(Bridge.url(this)).append(" → ").append(Bridge.lastSync(this)).append("\n")
+        for (pb in Store.pBridges()) {
+            sb.append(pb.name).append(" ").append(pb.url).append(" → ").append(Bridge.lastOf(this, pb.id)).append("\n")
+        }
+        sb.append("\n===== 桥日志 =====\n").append(bridgeLog()).append("\n\n")
+        sb.append("===== 锁机 / 熄屏日志 =====\n").append(Store.lockLog()).append("\n")
+        return sb.toString()
+    }
+
+    private fun canDrawOverlays(): Boolean =
+        Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)
+
+    private fun notiOn(): Boolean = try {
+        (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager).areNotificationsEnabled()
+    } catch (e: Exception) {
+        true
+    }
+
+    private fun batteryWhite(): Boolean = try {
+        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+        pm.isIgnoringBatteryOptimizations(packageName)
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun alarmOk(): Boolean = if (Build.VERSION.SDK_INT >= 31) {
+        try {
+            (getSystemService(ALARM_SERVICE) as android.app.AlarmManager).canScheduleExactAlarms()
+        } catch (e: Exception) {
+            false
+        }
+    } else true
+
+    private fun writeSettingsOk(): Boolean =
+        Build.VERSION.SDK_INT < 23 || android.provider.Settings.System.canWrite(this)
+
+    private fun selfCheck(): String {
+        val sb = StringBuilder()
+        sb.append(if (canDrawOverlays()) "✅" else "❌").append(" 悬浮窗权限（锁机最关键）\n")
+        sb.append(if (notiOn()) "✅" else "❌").append(" 通知权限\n")
+        sb.append(if (batteryWhite()) "✅" else "❌").append(" 电池优化白名单（不加半夜会被杀）\n")
+        sb.append(if (alarmOk()) "✅" else "❌").append(" 精确闹钟\n")
+        sb.append(if (writeSettingsOk()) "✅" else "❌").append(" 修改系统设置（熄屏用）\n")
+        sb.append(if (Bridge.enabled(this)) "✅" else "⚠️").append(" App 桥 ").append(Bridge.lastSync(this)).append("\n")
+        val pb = Store.pBridges()
+        sb.append("ℹ️ 插件桥 ").append(pb.size).append(" 条（开着 ").append(pb.count { it.on }).append("）\n")
+        val dir = File(filesDir, "cards")
+        val writable = dir.exists() || dir.mkdirs()
+        sb.append(if (writable) "✅" else "❌").append(" 图片保存目录\n")
+        try {
+            val st = android.os.StatFs(filesDir.path)
+            sb.append("ℹ️ 可用空间 ").append(st.availableBytes / 1024 / 1024).append(" MB\n")
+        } catch (_: Exception) {
+        }
+        val lf = Bridge.logFile(this)
+        sb.append("ℹ️ 桥日志 ").append(if (lf.exists()) lf.length().toString() + " 字节" else "还没有").append("\n")
+        sb.append("ℹ️ 版本 ").append(Update.curVersionName(this))
+            .append("（build ").append(Update.curVersionCode(this)).append("）· ").append(Build.MODEL)
+        return sb.toString()
+    }
+
+    private fun screenDev(): View {
+        val (sv, col) = page("开发者 / 诊断")
+
+        val c1 = card("自检（缺什么一眼看到）")
+        c1.addView(Ui.tv(this, selfCheck(), 12f, Ui.SUB))
+        val bSelf = Ui.btn(this, "重新自检")
+        bSelf.setOnClickListener { show(10) }
+        c1.addView(bSelf)
+        col.addView(c1)
+
+        val c2 = card("日志（全部集中在这里）")
+        c2.addView(Ui.tv(this, "诊断信息 + 桥状态 + 桥日志 + 锁机/熄屏日志", 11f, Ui.SUB))
+        val bAll = Ui.btn(this, "一键复制全部日志")
+        bAll.setOnClickListener {
+            copyText(allLogs())
+            toast("全部日志已复制，粘到 QQ 发我就行")
+        }
+        c2.addView(bAll)
+        val lg = Ui.tv(this, allLogs(), 11f, Ui.SUB)
+        lg.setTextIsSelectable(true)
+        c2.addView(lg)
+        col.addView(c2)
+
+        val c3 = card("测试")
+        val bT1 = Ui.btn(this, "测试通知", filled = false)
+        bT1.setOnClickListener {
+            Bridge.noti(this, "棂记测试", "能看到这条 = 通知没问题")
+            toast("已发一条测试通知")
+        }
+        val bT2 = Ui.btn(this, "测试锁机 1 分钟", filled = false)
+        bT2.setOnClickListener { LockService.start(this, 1, LockService.MODE_PLAIN) }
+        val bT3 = Ui.btn(this, "测试熄屏自检", filled = false)
+        bT3.setOnClickListener { lockSelfCheck() }
+        val bT4 = Ui.btn(this, "测试选图（看能不能读出来）", filled = false)
+        bT4.setOnClickListener {
+            pickImage { uri ->
+                val f = File(File(filesDir, "cards").apply { mkdirs() }, "test_pick.jpg")
+                if (Cards.testRead(this, uri, f)) toast("图片能读：${f.length() / 1024} KB ✓")
+                else toast("这张图读不出来 ✗ 换一张再试")
+            }
+        }
+        val bT5 = Ui.btn(this, "清空日志", filled = false)
+        bT5.setOnClickListener {
+            try {
+                Bridge.logFile(this).writeText("")
+            } catch (_: Exception) {
+            }
+            Store.setLockLog("")
+            Store.prefs().edit().putString("bridgeAcks", "[]").apply()
+            toast("日志已清空")
+            show(10)
+        }
+        for (b in listOf(bT1, bT2, bT3, bT4, bT5)) c3.addView(b)
+        col.addView(c3)
+        return sv
     }
 
     private fun devOn() = Store.prefs().getBoolean("devMode", false)
@@ -1964,8 +2124,8 @@ class MainActivity : Activity() {
         }
         cS.addView(bWrite)
 
-        val bCheck = Ui.btn(this, "熄屏自检（为什么没熄屏，一测就知道）", filled = false)
-        bCheck.setOnClickListener { lockSelfCheck() }
+        val bCheck = Ui.btn(this, "熄屏自检 / 日志（都在「开发者 / 诊断」里）", filled = false)
+        bCheck.setOnClickListener { openPage(10) }
         cS.addView(bCheck)
 
         // ---- 熄屏：不用 Shizuku，靠控制中心的「一键锁屏」----
@@ -2003,14 +2163,7 @@ class MainActivity : Activity() {
 
         val lk = Store.lockLog()
         if (lk.isNotEmpty()) {
-            cS.addView(Ui.divider(this))
-            cS.addView(Ui.sectionTitle(this, "熄屏日志（点「复制」发我）"))
-            val lgv = Ui.tv(this, lk, 11f, Ui.SUB)
-            lgv.setTextIsSelectable(true)
-            cS.addView(lgv)
-            val bCopyL = Ui.btn(this, "复制熄屏日志", filled = false, small = true)
-            bCopyL.setOnClickListener { copyText(lk) }
-            cS.addView(bCopyL)
+            cS.addView(Ui.tv(this, "熄屏日志（" + lk.length + " 字）已移到「开发者 / 诊断」里查看和复制。", 11f, Ui.SUB))
         }
         col.addView(cS)
 
@@ -2127,8 +2280,10 @@ class MainActivity : Activity() {
         cBr.addView(rowB)
         cBr.addView(
             Ui.tv(
-                this, (if (Bridge.enabled(this)) "状态：✅ 自动同步中（每 20 秒）\n"
-                else "状态：⚠️ 桥没开 → 只有你手动点「立即同步」才会连\n") +
+                this, (if (Bridge.anyOn(this)) "状态：✅ 自动同步中（每 20 秒）\n"
+                else "状态：⚠️ 主桥和插件桥都关着 → 只有你手动点「立即同步」才会连\n") +
+                        "通道：主桥 " + (if (Bridge.enabled(this)) "开" else "关") +
+                        " + 插件桥 " + Store.pBridges().count { it.on } + " 条开\n" +
                         "地址：${Bridge.url(this)}\n令牌：" +
                         (if (Bridge.token(this).isBlank()) "未设置（服务器会拒收）" else "已设置") +
                         "\n上次同步：${Bridge.lastSync(this)}", 12f, Ui.SUB
@@ -2164,6 +2319,53 @@ class MainActivity : Activity() {
                         "开机也会自动续上，不用手动点。流量和耗电都很小。", 11f, Ui.SUB
             )
         )
+
+        cBr.addView(Ui.divider(this))
+        cBr.addView(Ui.sectionTitle(this, "插件桥（可以加很多个）"))
+        cBr.addView(
+            Ui.tv(
+                this,
+                "插件桥 = 再加一条自己的通道：填另一个服务器的地址 + 令牌，这台手机的状态就会同时同步过去，" +
+                        "那边的 AI 也能给你加待办、发提醒。各自独立开关。", 11f, Ui.SUB
+            )
+        )
+        for (pb in Store.pBridges()) {
+            val rowP = Ui.row(this)
+            rowP.setPadding(0, Ui.dp(this, 8f), 0, Ui.dp(this, 8f))
+            val colT = LinearLayout(this)
+            colT.orientation = LinearLayout.VERTICAL
+            colT.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            colT.addView(Ui.tv(this, pb.name, 15f, Ui.TXT, true))
+            colT.addView(
+                Ui.tv(
+                    this, pb.url + "\n上次：" + Bridge.lastOf(this, pb.id) +
+                            (if (pb.token.isBlank()) " · ⚠️ 没填令牌" else ""), 11f, Ui.SUB
+                )
+            )
+            val swP = Switch(this)
+            swP.isChecked = pb.on
+            swP.setOnCheckedChangeListener { _, v ->
+                Store.updPBridge(Store.PBridge(pb.id, pb.name, pb.url, pb.token, v))
+                Bridge.syncNow(this)
+                toast(if (v) "已开：马上同步一次" else "已关")
+            }
+            rowP.addView(colT)
+            rowP.addView(swP)
+            rowP.addView(xBtn {
+                AlertDialog.Builder(this).setTitle("删掉插件桥").setMessage(pb.name)
+                    .setPositiveButton("删除") { _, _ ->
+                        Store.delPBridge(pb.id)
+                        show(4)
+                    }
+                    .setNegativeButton("取消", null).show()
+            })
+            rowP.isClickable = true
+            rowP.setOnClickListener { dialogPBridge(pb) }
+            cBr.addView(rowP)
+        }
+        val bAddP = Ui.btn(this, "＋ 添加插件桥", filled = false)
+        bAddP.setOnClickListener { dialogPBridge(null) }
+        cBr.addView(bAddP)
         col.addView(cBr)
 
         // ---------- v2.34：SSH 私钥连接服务器（三步配对） ----------
@@ -2289,14 +2491,15 @@ class MainActivity : Activity() {
         col.addView(cSh)
 
         // ---------- v2.31：日志与诊断 ----------
-        val cDiag = card("日志与诊断")
+        val cDiag = card("开发者 / 诊断")
         cDiag.addView(Ui.tv(this, diagText(), 12f, Ui.SUB))
-        val bCpDiag = Ui.btn(this, "复制诊断信息", filled = false)
-        bCpDiag.setOnClickListener { copyText(diagText()) }
+        cDiag.addView(Ui.tv(this, "日志（桥 / 锁机 / 全部诊断）和各种测试统一收在这一页里。", 11f, Ui.SUB))
+        val bDev = Ui.btn(this, "打开开发者 / 诊断")
+        bDev.setOnClickListener { openPage(10) }
+        cDiag.addView(bDev)
+        val bCpDiag = Ui.btn(this, "一键复制全部日志", filled = false)
+        bCpDiag.setOnClickListener { copyText(allLogs()) }
         cDiag.addView(bCpDiag)
-        val bLog = Ui.btn(this, "复制桥日志", filled = false)
-        bLog.setOnClickListener { copyText(bridgeLog()) }
-        cDiag.addView(bLog)
         col.addView(cDiag)
 
         // ---------- v2.43：插件 ----------
