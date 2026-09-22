@@ -262,6 +262,7 @@ class MainActivity : Activity() {
                 6 -> screenBook()
                 7 -> screenStat()
                 8 -> screenToday()
+                9 -> screenPlugins()
                 else -> screenSettings()
             }
         } catch (e: Throwable) {
@@ -1497,6 +1498,132 @@ class MainActivity : Activity() {
     }
 
     // ---------------- 设置 ----------------
+    // ================= 插件页（v2.43 纳棂：设置里加插件页，用户跟自己的 AI 商量后加卡片） =================
+    private fun screenPlugins(): View {
+        val sc = ScrollView(this)
+        val col = LinearLayout(this)
+        col.orientation = LinearLayout.VERTICAL
+        col.setPadding(Ui.dp(this, 16f), Ui.dp(this, 8f), Ui.dp(this, 16f), Ui.dp(this, 24f))
+        col.addView(Ui.bigTitle(this, "插件"))
+        col.addView(
+            Ui.tv(
+                this,
+                "插件 = 一张你**自己加**的首页小卡片（比如股票、服务器状态、粉丝数）。\n" +
+                        "做法：① 点下面「复制插件规格」→ ② 粘给你自己的 AI（豆包/马维斯都行），跟它说要什么 → " +
+                        "③ AI 给你一段 JSON → ④ 粘回这里「粘贴 AI 的 JSON」就装好了。\n" +
+                        "插件是声明式的（不加载外部代码），只请求你指定的 https 地址。",
+                12f, Ui.SUB
+            )
+        )
+
+        val bSpec = Ui.btn(this, "① 复制插件规格（给 AI 看）")
+        bSpec.setOnClickListener {
+            copyText(Plugins.aiSpec())
+            toast("复制好了 → 粘给 AI，说要什么插件")
+        }
+        col.addView(bSpec)
+
+        val bStock = Ui.btn(this, "② 加一个股票卡（只填代码）", filled = false)
+        bStock.setOnClickListener {
+            val et = EditText(this)
+            et.hint = "股票代码，例 600519 / sh000001"
+            AlertDialog.Builder(this)
+                .setTitle("加股票卡")
+                .setView(et)
+                .setPositiveButton("加") { _, _ ->
+                    val code = et.text.toString().trim()
+                    if (code.isBlank()) toast("代码不能空") else {
+                        val p = Plugins.stock(code)
+                        Plugins.add(this, p)
+                        addPluginCard(p)
+                        toast("已加：${p.name}")
+                        show(9)
+                    }
+                }
+                .setNegativeButton("取消", null).show()
+        }
+        col.addView(bStock)
+
+        val bPaste = Ui.btn(this, "③ 粘贴 AI 给的插件 JSON", filled = false)
+        bPaste.setOnClickListener {
+            val et = EditText(this)
+            et.hint = "{\"name\":\"上证指数\",\"icon\":\"📈\",\"url\":\"...\",\"pick\":\"split:~:3\"}"
+            et.minLines = 4
+            AlertDialog.Builder(this)
+                .setTitle("粘贴插件 JSON")
+                .setView(et)
+                .setPositiveButton("装上") { _, _ ->
+                    try {
+                        val o = org.json.JSONObject(et.text.toString().trim())
+                        val p = Plugins.P.from(o)
+                        if (p.url.isBlank() || p.pick.isBlank()) {
+                            toast("缺 url 或 pick，让 AI 补上")
+                        } else {
+                            Plugins.add(this, p)
+                            addPluginCard(p)
+                            toast("已装：${p.name}")
+                            show(9)
+                        }
+                    } catch (e: Exception) {
+                        toast("JSON 解析失败：" + (e.message ?: ""))
+                    }
+                }
+                .setNegativeButton("取消", null).show()
+        }
+        col.addView(bPaste)
+
+        col.addView(Ui.sectionTitle(this, "已装插件（点「试」立刻拉一次 / 「上首页」加卡片）"))
+        val list = Plugins.load(this)
+        if (list.isEmpty()) {
+            col.addView(Ui.tv(this, "还没有插件。先加一个股票卡试试 👆", 12f, Ui.SUB))
+        }
+        for (p in list) {
+            val c = card(p.icon + " " + p.name)
+            c.addView(Ui.tv(this, p.url, 11f, Ui.SUB))
+            val row = Ui.row(this)
+            val bTest = Ui.btn(this, "试", filled = false, small = true)
+            val tvOut = Ui.tv(this, "—", 12f, Ui.TXT)
+            bTest.setOnClickListener {
+                tvOut.text = "拉取中…"
+                Plugins.fetch(p) { a, b, chg -> runOnUiThread { tvOut.text = "$a  $b" } }
+            }
+            val bHome = Ui.btn(this, "上首页", filled = false, small = true)
+            bHome.setOnClickListener {
+                addPluginCard(p)
+                toast("已加到首页")
+                show(9)
+            }
+            val bDel = Ui.btn(this, "删", filled = false, small = true)
+            bDel.setOnClickListener {
+                Plugins.remove(this, p.id)
+                toast("已删插件（首页那张卡会显示「插件已删除」）")
+                show(9)
+            }
+            row.addView(bTest); row.addView(bHome); row.addView(bDel)
+            c.addView(row)
+            c.addView(tvOut)
+            col.addView(c)
+        }
+        sc.addView(col)
+        return wrapWithBack(9, sc)
+    }
+
+    /** 把一个插件加成首页卡片 */
+    private fun addPluginCard(p: Plugins.P) {
+        val list = Cards.load()
+        if (list.any { it.plug == p.id }) return
+        list.add(
+            Cards.C(
+                System.currentTimeMillis(), p.name, dateStr(java.util.Date()), "down", null, 1, -1, 0, -1,
+                Cards.STRONG_PUB[list.size % Cards.STRONG_PUB.size], false, 1, p.id
+            )
+        )
+        Cards.save(list)
+    }
+
+    private fun dateStr(d: java.util.Date): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA).format(d)
+
     private fun screenSettings(): View {
         val (sv, col) = page("设置")
         foldMode = false         // v2.22：关闭折叠（自定义折叠控件会导致布局递归栈溢出）
@@ -1944,6 +2071,16 @@ class MainActivity : Activity() {
         bLog.setOnClickListener { copyText(bridgeLog()) }
         cDiag.addView(bLog)
         col.addView(cDiag)
+
+        // ---------- v2.43：插件 ----------
+        val cPlug = card("插件（自己加首页小卡片）")
+        cPlug.addView(
+            Ui.tv(this, "股票 / 服务器 / 任意接口：跟你自己的 AI 商量好，把它给的 JSON 粘进来就装好了。", 12f, Ui.SUB)
+        )
+        val bPlug = Ui.btn(this, "打开插件页")
+        bPlug.setOnClickListener { openPage(9) }
+        cPlug.addView(bPlug)
+        col.addView(cPlug)
 
         val c2 = card("权限（缺一个锁机就可能失效）")
         c2.addView(

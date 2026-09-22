@@ -42,7 +42,8 @@ object Cards {
         var ct: Int = -1,        // 图表类型：-1非图表 0折线 1柱状 2饼图 3表格
         var color: Int = -1,     // 卡片底色（-1 = 默认浅色渐变）
         var rep: Boolean = false, // 每年重复（生日/节日）
-        var size: Int = 2        // 1=单格 / 2=半宽 / 4=整行（图表卡固定 4）
+        var size: Int = 2,       // 1=单格 / 2=半宽 / 4=整行（图表卡固定 4）
+        var plug: String? = null // 插件卡：插件 id（v2.43 纳棂：让用户自己加小卡片）
     )
 
     // ---------- 存取 ----------
@@ -59,7 +60,8 @@ object Cards {
                         o.optString("date", today()), o.optString("mode", "down"),
                         if (o.isNull("bg")) null else o.optString("bg"), o.optInt("h", 1),
                         o.optInt("fn", -1), o.optInt("src", 0), o.optInt("ct", -1),
-                        o.optInt("color", -1), o.optBoolean("rep", false), o.optInt("size", 2)))
+                        o.optInt("color", -1), o.optBoolean("rep", false), o.optInt("size", 2),
+                        if (o.isNull("plug")) null else o.optString("plug", null)))
                 }
             } catch (_: Exception) {
             }
@@ -130,6 +132,7 @@ object Cards {
             a.put(JSONObject().apply {
                 put("id", c.id); put("title", c.title); put("date", c.date)
                 put("mode", c.mode); put("bg", c.bg ?: JSONObject.NULL); put("h", c.h)
+            put("plug", c.plug ?: JSONObject.NULL)
                 put("fn", c.fn)
                 put("src", c.src); put("ct", c.ct)
                 put("color", c.color); put("rep", c.rep); put("size", c.size)
@@ -208,6 +211,9 @@ object Cards {
         0xFF1E1B33.toInt(), 0xFFFFFFFF.toInt(), 0xFF1E7BF5.toInt(), 0xFFF5891F.toInt(),
         0xFFF5C21E.toInt(), 0xFFF5336E.toInt(), 0xFF22C51E.toInt(), 0xFF6E3CF5.toInt()
     )
+
+    /** 插件卡等在别处也要用这套配色 */
+    val STRONG_PUB get() = STRONG
 
     private fun MAP(): Int = ViewGroup.LayoutParams.MATCH_PARENT
     private fun WRAP(): Int = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -430,7 +436,9 @@ object Cards {
                 col.addView(row)
                 used = 0
             }
-            val v = if (c.fn >= 0) {
+            val v = if (c.plug != null) {
+                pluginCard(act, c)
+            } else if (c.fn >= 0) {
                 gnameCard(act, c, fnPreview(c.fn)) { act.openPage(c.fn) }
             } else {
                 gnameCard(act, c, Math.abs(daysOf(c)).toString()) { edit(act, c) }
@@ -610,6 +618,80 @@ object Cards {
             }
         }
         return v
+    }
+
+    /** 插件卡（v2.43）：显示某个插件拉回来的数据；点一下刷新，自动按 refresh 秒轮询 */
+    private fun pluginCard(act: MainActivity, c: C): View {
+        val box = LinearLayout(act)
+        box.orientation = LinearLayout.VERTICAL
+        box.gravity = Gravity.CENTER
+        val pad = Ui.dp(act, 5f)
+        val w = act.resources.displayMetrics.widthPixels - Ui.dp(act, 34f)
+        val unitW = if (c.size == 1) (w / 4) else (w / 2)
+        box.layoutParams = LinearLayout.LayoutParams(unitW, (w / 2).coerceAtLeast(Ui.dp(act, 150f))).apply {
+            setMargins(pad, pad, pad, pad)
+        }
+        box.setBackgroundDrawable(Ui.round(if (c.color >= 0) c.color else Ui.CARD, 24, act))
+        box.setPadding(Ui.dp(act, 10f), Ui.dp(act, 12f), Ui.dp(act, 10f), Ui.dp(act, 12f))
+        box.elevation = Ui.dp(act, 1.5f).toFloat()
+
+        val list = Plugins.load(act)
+        val plug = list.firstOrNull { it.id == c.plug }
+        if (plug == null) {
+            box.addView(Ui.tv(act, c.title, 13f, Ui.TXT, true).also { it.gravity = Gravity.CENTER })
+            box.addView(Ui.tv(act, "插件已删除", 11f, Ui.SUB).also { it.gravity = Gravity.CENTER })
+            return box
+        }
+
+        val head = Ui.tv(act, plug.icon + " " + plug.name, 12f, Ui.SUB)
+        head.gravity = Gravity.CENTER
+        head.maxLines = 1
+        box.addView(head)
+        val big = Ui.tv(act, "…", if (c.size == 1) 20f else 26f, Ui.TXT, true)
+        big.gravity = Gravity.CENTER
+        big.maxLines = 1
+        box.addView(big)
+        val sub = Ui.tv(act, "", 11f, Ui.SUB)
+        sub.gravity = Gravity.CENTER
+        sub.maxLines = 1
+        box.addView(sub)
+
+        var stopped = false
+        box.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: android.view.View) {}
+            override fun onViewDetachedFromWindow(v: android.view.View) {
+                stopped = true
+            }
+        })
+        fun once() {
+            Plugins.fetch(plug) { a, b, chg ->
+                if (stopped) return@fetch
+                big.text = a
+                sub.text = b
+                // A股习惯：红涨绿跌
+                if (chg != null) {
+                    val col = if (chg > 0) 0xFFD81E2C.toInt() else if (chg < 0) 0xFF1E9E5A.toInt() else Ui.TXT
+                    big.setTextColor(col)
+                    sub.setTextColor(col)
+                }
+            }
+        }
+        once()
+        box.setOnClickListener { once() }
+        box.setOnLongClickListener { longPressMenu(act, c); true }
+
+        // 自动刷新（按插件的 refresh 秒；只在这个卡片活着时跑）
+        val iv = plug.refresh.coerceIn(15, 3600) * 1000L
+        val h = android.os.Handler(android.os.Looper.getMainLooper())
+        val tick = object : Runnable {
+            override fun run() {
+                if (stopped) return
+                once()
+                h.postDelayed(this, iv)
+            }
+        }
+        h.postDelayed(tick, iv)
+        return box
     }
 
     /** 图表卡：折线 / 柱状 / 饼图 / 表格（整行宽 4×2，点一下换数据源与图表类型） */
