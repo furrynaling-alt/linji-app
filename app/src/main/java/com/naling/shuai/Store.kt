@@ -243,7 +243,7 @@ object Store {
         sp.edit().putString("serverBase", v.trim().trimEnd('/')).apply()
     }
 
-    class Note(val ts: Long, val text: String)
+    class Note(val ts: Long, val text: String, val pin: Boolean = false)
 
     fun notes(): MutableList<Note> {
         val raw = sp.getString("notes", "[]") ?: "[]"
@@ -252,29 +252,38 @@ object Store {
             val arr = JSONArray(raw)
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                list.add(Note(o.getLong("ts"), o.getString("text")))
+                list.add(Note(o.optLong("ts"), o.optString("text", ""), o.optBoolean("pin", false)))
             }
         } catch (_: Exception) {
         }
-        list.sortByDescending { it.ts }
+        list.sortWith(compareByDescending<Note> { it.pin }.thenByDescending { it.ts })
         return list
     }
 
-    fun addNote(text: String) {
+    fun saveNotes(list: List<Note>) {
         val arr = JSONArray()
-        val old = notes()
-        arr.put(JSONObject().put("ts", System.currentTimeMillis()).put("text", text))
-        for (n in old) arr.put(JSONObject().put("ts", n.ts).put("text", n.text))
+        for (n in list) {
+            arr.put(JSONObject().put("ts", n.ts).put("text", n.text).put("pin", n.pin))
+        }
         sp.edit().putString("notes", arr.toString()).apply()
     }
 
+    fun addNote(text: String) {
+        val list = notes()
+        list.add(0, Note(System.currentTimeMillis(), text, false))
+        saveNotes(list)
+    }
+
+    fun updNote(ts: Long, text: String) {
+        saveNotes(notes().map { if (it.ts == ts) Note(it.ts, text, it.pin) else it })
+    }
+
+    fun pinNote(ts: Long, on: Boolean) {
+        saveNotes(notes().map { if (it.ts == ts) Note(it.ts, it.text, on) else it })
+    }
+
     fun delNote(ts: Long) {
-        val arr = JSONArray()
-        for (n in notes()) {
-            if (n.ts == ts) continue
-            arr.put(JSONObject().put("ts", n.ts).put("text", n.text))
-        }
-        sp.edit().putString("notes", arr.toString()).apply()
+        saveNotes(notes().filter { it.ts != ts })
     }
 
     // ---------------- 用药 ----------------

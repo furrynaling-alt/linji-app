@@ -636,7 +636,7 @@ class MainActivity : Activity() {
             .setNegativeButton("取消", null).show()
     }
 
-    private fun habitMenu(hb: Store.Habit) {
+    private fun habitMenu(hb: Store.Habit, back: Int = 0) {
         val items = arrayOf("重命名", "删除这条习惯", "取消")
         AlertDialog.Builder(this).setTitle(hb.name).setItems(items) { _, which ->
             when (which) {
@@ -650,12 +650,12 @@ class MainActivity : Activity() {
                     AlertDialog.Builder(this).setTitle("重命名").setView(box)
                         .setPositiveButton("保存") { _, _ ->
                             if (e.text.toString().trim().isNotEmpty()) {
-                                Store.renameHabit(hb.id, e.text.toString().trim()); show(0)
+                                Store.renameHabit(hb.id, e.text.toString().trim()); show(back)
                             }
                         }
                         .setNegativeButton("取消", null).show()
                 }
-                1 -> Store.removeHabit(hb.id).also { show(0) }
+                1 -> Store.removeHabit(hb.id).also { show(back) }
             }
         }.show()
     }
@@ -1320,13 +1320,199 @@ class MainActivity : Activity() {
         return sv
     }
 
-    // ---------------- 记录 ----------------
+    private var noteTab = 0
+    private var noteQuery = ""
+
+    private fun segPill(): View {
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.HORIZONTAL
+        box.background = Ui.round(0xFFF2F2F7.toInt(), 18, this)
+        box.setPadding(Ui.dp(this, 3f), Ui.dp(this, 3f), Ui.dp(this, 3f), Ui.dp(this, 3f))
+        val names = listOf("便签", "待办", "打卡")
+        for (i in names.indices) {
+            val on = noteTab == i
+            val t = Ui.tv(this, names[i], 13f, if (on) Color.WHITE else Ui.TXT, on)
+            t.gravity = Gravity.CENTER
+            t.setPadding(Ui.dp(this, 13f), Ui.dp(this, 7f), Ui.dp(this, 13f), Ui.dp(this, 7f))
+            t.background = if (on) Ui.ripple(this, 15, Ui.grad(Ui.RED_DEEP, Ui.RED, 15, this), 0x40FFFFFF) else null
+            t.isClickable = true
+            t.setOnClickListener { noteTab = i; show(2) }
+            box.addView(t)
+        }
+        return box
+    }
+
     private fun screenNotes(): View {
-        val (sv, col) = page("记录")
-        val cT = card("待办（点一下 = 完成）")
+        foldMode = false
+        val sv = ScrollView(this)
+        sv.isFillViewport = true
+        val col = LinearLayout(this)
+        col.orientation = LinearLayout.VERTICAL
+        col.setPadding(Ui.dp(this, 16f), Ui.dp(this, 26f), Ui.dp(this, 16f), Ui.dp(this, 24f))
+        val head = Ui.row(this)
+        val ttl = Ui.bigTitle(this, "记录")
+        ttl.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        head.addView(ttl)
+        head.addView(segPill())
+        col.addView(head)
+        sv.addView(col)
+        when (noteTab) {
+            1 -> paneTodo(col)
+            2 -> paneHabit(col)
+            else -> paneNote(col)
+        }
+        return sv
+    }
+
+    private fun paneNote(col: LinearLayout) {
+        val all = Store.notes()
+        val cTop = card(null)
+        val r1 = Ui.row(this)
+        val es = edit("搜索便签…")
+        es.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        es.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        r1.addView(es)
+        val bNew = Ui.btn(this, "＋ 新建", small = true)
+        bNew.setOnClickListener { noteEditor(null) }
+        r1.addView(bNew)
+        cTop.addView(r1)
+        cTop.addView(Ui.tv(this, "共 " + all.size + " 条 · 点一条改，长按出菜单", 12f, Ui.SUB))
+        col.addView(cTop)
+
+        val listBox = LinearLayout(this)
+        listBox.orientation = LinearLayout.VERTICAL
+        fun render() {
+            listBox.removeAllViews()
+            val q = noteQuery.trim()
+            val items = if (q.isEmpty()) all else all.filter { it.text.contains(q, true) }
+            if (items.isEmpty()) {
+                listBox.addView(
+                    Ui.tv(
+                        this,
+                        if (q.isEmpty()) "还没有便签 —— 点上面「＋ 新建」写一条" else "没有含「" + q + "」的便签",
+                        14f, Ui.SUB
+                    )
+                )
+                return
+            }
+            for (n in items) listBox.addView(noteRow(n))
+        }
+        render()
+        es.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) {
+                noteQuery = s?.toString() ?: ""
+                render()
+            }
+
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        })
+        col.addView(listBox)
+    }
+
+    private fun noteRow(n: Store.Note): View {
+        val c = Ui.card(this, 14)
+        val lines = n.text.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+        val title = lines.firstOrNull() ?: "无标题"
+        val more = lines.drop(1).joinToString(" ")
+        val head = Ui.row(this)
+        val tt = Ui.tv(this, (if (n.pin) "📌 " else "") + title, 16f, Ui.TXT, true)
+        tt.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        tt.maxLines = 1
+        tt.ellipsize = android.text.TextUtils.TruncateAt.END
+        head.addView(tt)
+        head.addView(Ui.tv(this, SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(n.ts)), 12f, Ui.SUB))
+        c.addView(head)
+        if (more.isNotEmpty()) {
+            val pv = Ui.tv(this, more, 13.5f, Ui.SUB)
+            pv.maxLines = 2
+            pv.ellipsize = android.text.TextUtils.TruncateAt.END
+            c.addView(pv)
+        }
+        c.isClickable = true
+        c.background = Ui.ripple(this, 18, Ui.round(Ui.CARD, 18, this), 0x14000000)
+        c.setOnClickListener { noteEditor(n) }
+        c.setOnLongClickListener { noteMenu(n); true }
+        return c
+    }
+
+    private fun noteEditor(n: Store.Note?) {
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.VERTICAL
+        box.setPadding(Ui.dp(this, 18f), Ui.dp(this, 4f), Ui.dp(this, 18f), 0)
+        val e = edit("写点什么…")
+        e.minLines = 6
+        e.gravity = Gravity.TOP
+        e.setText(n?.text ?: "")
+        e.setSelection(e.text.length)
+        box.addView(e)
+        lateinit var dlg: AlertDialog
+        if (n != null) {
+            val bp = Ui.btn(this, if (n.pin) "取消置顶" else "置顶到最前", filled = false, small = true)
+            bp.setOnClickListener {
+                Store.pinNote(n.ts, !n.pin)
+                dlg.dismiss()
+                show(2)
+            }
+            box.addView(bp)
+        }
+        val b = AlertDialog.Builder(this)
+            .setTitle(if (n == null) "新建便签" else "编辑便签")
+            .setView(box)
+            .setPositiveButton("保存", null)
+            .setNegativeButton("取消", null)
+        if (n != null) b.setNeutralButton("删除") { _, _ -> confirmDelNote(n) }
+        dlg = b.create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val t = e.text.toString().trim()
+                if (t.isEmpty()) toast("先写点东西") else {
+                    if (n == null) Store.addNote(t) else Store.updNote(n.ts, t)
+                    dlg.dismiss()
+                    show(2)
+                }
+            }
+        }
+        dlg.show()
+    }
+
+    private fun noteMenu(n: Store.Note) {
+        val items = arrayOf(if (n.pin) "取消置顶" else "置顶到最前", "复制内容", "编辑", "删除")
+        AlertDialog.Builder(this).setTitle("便签").setItems(items) { _, w ->
+            when (w) {
+                0 -> {
+                    Store.pinNote(n.ts, !n.pin); show(2)
+                }
+                1 -> {
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("便签", n.text))
+                    toast("已复制")
+                }
+                2 -> noteEditor(n)
+                3 -> confirmDelNote(n)
+            }
+        }.show()
+    }
+
+    private fun confirmDelNote(n: Store.Note) {
+        AlertDialog.Builder(this).setTitle("删掉这条便签？")
+            .setMessage(n.text.take(60))
+            .setPositiveButton("删除") { _, _ -> Store.delNote(n.ts); show(2) }
+            .setNegativeButton("取消", null).show()
+    }
+
+    private fun paneTodo(col: LinearLayout) {
+        val cT = card(null)
         val tl = Store.todos()
+        val doneN = tl.count { it.done }
+        val top = Ui.row(this)
+        val t1 = Ui.tv(this, "待办", 15f, Ui.TXT, true)
+        t1.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        top.addView(t1)
+        top.addView(Ui.tv(this, "未完成 " + (tl.size - doneN) + " · 已完成 " + doneN, 12f, Ui.SUB))
+        cT.addView(top)
         if (tl.isEmpty()) cT.addView(Ui.tv(this, "暂时没有待办", 13f, Ui.SUB))
-        for (t in tl) {
+        for ((idx, t) in tl.withIndex()) {
             val row = LinearLayout(this)
             row.orientation = LinearLayout.HORIZONTAL
             row.gravity = Gravity.CENTER_VERTICAL
@@ -1347,7 +1533,7 @@ class MainActivity : Activity() {
             x.setOnClickListener { Store.delTodo(t.id); show(2) }
             row.addView(x)
             cT.addView(row)
-            cT.addView(Ui.divider(this))
+            if (idx != tl.size - 1) cT.addView(Ui.divider(this))
         }
         val bTodo = Ui.btn(this, "＋ 我自己加一条", filled = false)
         bTodo.setOnClickListener {
@@ -1358,39 +1544,68 @@ class MainActivity : Activity() {
             }
         }
         cT.addView(bTodo)
-        col.addView(cT)
-
-        val c = card("随手记（皮肤状态 / 备忘）")
-        val e = edit("例如：脸颊新生一颗痘，昨晚熬夜了")
-        e.minLines = 2
-        c.addView(e)
-        val b = Ui.btn(this, "保存")
-        b.setOnClickListener {
-            val t = e.text.toString().trim()
-            if (t.isEmpty()) toast("先写点东西") else {
-                Store.addNote(t); show(2)
+        if (doneN > 0) {
+            val bClr = Ui.btn(this, "清掉已完成的 " + doneN + " 条", filled = false)
+            bClr.setOnClickListener {
+                tl.filter { it.done }.forEach { Store.delTodo(it.id) }
+                show(2)
             }
+            cT.addView(bClr)
         }
-        c.addView(b)
+        col.addView(cT)
+        col.addView(Ui.tv(this, "点一条 = 完成／取消，右边 ✕ 删掉；棂星加的带 🌟", 12f, Ui.SUB))
+    }
+
+    private fun paneHabit(col: LinearLayout) {
+        val hs = Store.habits()
+        val d = Store.day()
+        val doneN = hs.count { it.days.contains(d) }
+        val c = card(null)
+        val top = Ui.row(this)
+        val t1 = Ui.tv(this, "今日打卡", 15f, Ui.TXT, true)
+        t1.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        top.addView(t1)
+        top.addView(Ui.tv(this, doneN.toString() + " / " + hs.size, 15f, Ui.RED, true))
+        c.addView(top)
+        c.addView(Ui.tv(this, "点一下 = 今天打勾／取消，长按可改名或删掉", 12f, Ui.SUB))
         col.addView(c)
 
-        val c2 = card("历史（长按删除）")
-        val fmt = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA)
-        val list = Store.notes()
-        if (list.isEmpty()) c2.addView(Ui.tv(this, "还没有记录", 14f, Ui.SUB))
-        for ((idx, n) in list.withIndex()) {
+        val c2 = card("习惯")
+        for ((idx, hb) in hs.withIndex()) {
             val row = Ui.row(this)
-            row.setPadding(0, Ui.dp(this, 4f), 0, Ui.dp(this, 4f))
-            val v = Ui.tv(this, fmt.format(Date(n.ts)) + "\n" + n.text, 15f, Ui.TXT)
-            v.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            v.setPadding(0, Ui.dp(this, 8f), 0, Ui.dp(this, 8f))
-            row.addView(v)
-            row.addView(xBtn { Store.delNote(n.ts); show(2) })
+            row.setPadding(0, Ui.dp(this, 12f), 0, Ui.dp(this, 12f))
+            val done = hb.days.contains(d)
+            val mark = Ui.tv(this, if (done) "✓" else "○", 18f, if (done) Ui.RED else 0xFFC7C7CC.toInt(), true)
+            mark.width = Ui.dp(this, 30f)
+            mark.gravity = Gravity.CENTER
+            val name = Ui.tv(this, hb.name, 16f, if (done) Ui.SUB else Ui.TXT)
+            name.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            row.addView(mark)
+            row.addView(name)
+            row.addView(Ui.tv(this, "连续 %d 天".format(Store.streak(hb)), 12f, Ui.SUB))
+            row.isClickable = true
+            row.background = Ui.ripple(this, 14, null, 0x14000000)
+            row.setOnClickListener {
+                Store.toggleHabit(hb)
+                show(2)
+            }
+            row.setOnLongClickListener {
+                habitMenu(hb, 2)
+                true
+            }
             c2.addView(row)
-            if (idx != list.size - 1) c2.addView(Ui.divider(this))
+            if (idx != hs.size - 1) c2.addView(Ui.divider(this))
         }
+        val bAdd = Ui.btn(this, "＋ 添加习惯", filled = false)
+        bAdd.setOnClickListener {
+            editRow("新习惯（点右上✕可删）", listOf("例如：跑步 20 分钟")) { v ->
+                if (v[0].isNotEmpty()) {
+                    Store.addHabit(v[0]); show(2)
+                }
+            }
+        }
+        c2.addView(bAdd)
         col.addView(c2)
-        return sv
     }
 
     // ---------------- 用药 ----------------
