@@ -811,7 +811,21 @@ class MainActivity : Activity() {
                 "   cd /opt/linji && printf '%s\\n' '你的口令' > token.txt && chmod 600 token.txt && npm i -g pm2 && pm2 start server.js --name linji-bridge && pm2 save\n" +
                 "   验证：curl -s https://<你的域名或IP>/linji/version.json        预期 返回 JSON\n" +
                 "         curl -s -X POST https://<域名>/linji/bridge.php -H 'X-Linji-Token: 你的口令' -d '{}'    预期 {\"cmds\":[]}\n" +
+                "\n===== 第三部分：让 SSH 走 443（手机在国内 + 服务器在海外时必做）=====\n" +
+                "为什么：裸 IP 的高端口在国内常被丢包（表现：连上后卡住 / channel is not opened），443 端口最正常。\n" +
+                "9) 装 nginx 的 stream 模块：apt-get install -y libnginx-mod-stream\n" +
+                "10) 把网站从 443 挪到 8443：站点配置里 `listen 443 ssl` 全改成 `listen 8443 ssl`；并在 nginx.conf 的 http{} 里加 `port_in_redirect off;`\n" +
+                "11) 在 nginx.conf 顶层（http{} 外面）加：\n" +
+                "   stream {\n" +
+                "       map \$ssl_preread_protocol \$linji_backend { \"\" 127.0.0.1:$pt; default 127.0.0.1:8443; }\n" +
+                "       server { listen 443; listen [::]:443; proxy_pass \$linji_backend; ssl_preread on; proxy_timeout 300s; }\n" +
+                "   }\n" +
+                "   （含义：443 上先看首包——TLS 走网站，SSH 走 sshd；一个端口同时干两件事）\n" +
+                "12) nginx -t && systemctl reload nginx\n" +
+                "13) 验证：curl -I https://<你的域名或IP> 仍然 200；ssh -p 443 $usr@$h   能走到要密码/公钥那一步就说明通了\n" +
+                "手机端对应：第一步的 IP 填 **$h:443**\n" +
                 "\n===== 排错 =====\n" +
+
                 "- Permission denied (publickey)：~/.ssh 权限 700、authorized_keys 600，用户必须是 $usr\n" +
                 "- 连不上/超时：云安全组 + 本机防火墙放行 $pt（nftables: nft add rule inet filter input tcp dport $pt accept）\n" +
                 "- 手机端对应位置：设置 → SSH 私钥连接服务器 → ①填 $h:$pt ②生成私钥 ③装公钥 ④点「配对连接」\n" +
