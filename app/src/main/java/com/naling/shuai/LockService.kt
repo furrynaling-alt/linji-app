@@ -306,6 +306,7 @@ class LockService : Service() {
         registerScreenReceiver()
         h.removeCallbacks(tick)
         h.post(tick)
+        Bridge.ensureStarted(this)
         return START_STICKY
     }
 

@@ -200,6 +200,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 Alarms.scheduleWake(c)
             }
             Alarms.A_WATCH -> {
+                Bridge.ensureStarted(c)
                 // ★ v2.15 看门狗：夜里进程被杀 → 悬浮窗/计时一起没了这里把它铺回来。
                 // 还在睡（有入睡时间）或还在锁机时段内，且服务确实不在跑 → 重新拉起。
                 if (Store.sleepStart() > 0L || LockService.shouldLockNow()) {

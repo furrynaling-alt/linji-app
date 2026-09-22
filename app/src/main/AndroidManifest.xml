@@ -105,7 +105,11 @@
             <service
             android:name=".BridgeService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="用户自建的手机状态同步：待办/提醒/睡眠数据与自己的服务器之间每 20 秒同步一次" />
+        </service>
 
 </application>
     <queries>

@@ -20,6 +20,7 @@ class BridgeService : Service() {
     private val CH = "linji_bridge"
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Bridge.startThread(this)
         try {
             if (Build.VERSION.SDK_INT >= 26) {
                 val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -39,11 +40,14 @@ class BridgeService : Service() {
                             .setOngoing(true)
                             .build()
                     else Notification.Builder(this).setContentTitle("棂记 · 自动同步中").build()
-                startForeground(9911, n)
+                if (Build.VERSION.SDK_INT >= 34) {
+                    startForeground(9911, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                } else {
+                    startForeground(9911, n)
+                }
             }
         } catch (_: Exception) {
         }
-        Bridge.startThread(this)
         return START_STICKY
     }
 
