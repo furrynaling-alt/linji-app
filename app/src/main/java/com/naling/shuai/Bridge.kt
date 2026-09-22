@@ -3,6 +3,7 @@ package com.naling.shuai
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.os.BatteryManager
 import android.os.Build
 import org.json.JSONArray
@@ -58,7 +59,19 @@ object Bridge {
         sp(c).edit().putString("bridgeAcks", keep.toString()).apply()
     }
 
+    /** 外部调用：起前台服务（保活）+ 轮询线程 */
     fun start(c: Context) {
+        val app = c.applicationContext
+        try {
+            val i = Intent(app, BridgeService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= 26) app.startForegroundService(i) else app.startService(i)
+        } catch (_: Exception) {
+        }
+        startThread(app)
+    }
+
+    /** 只起轮询线程（服务内部用，避免递归起服务） */
+    fun startThread(c: Context) {
         if (th != null) return
         stop = false
         val app = c.applicationContext
@@ -93,7 +106,15 @@ object Bridge {
         if (enabled(c)) start(c)
     }
 
-    fun stop() {
+    fun stop(c: Context) {
+        try {
+            c.applicationContext.stopService(Intent(c.applicationContext, BridgeService::class.java))
+        } catch (_: Exception) {
+        }
+        stopThread()
+    }
+
+    fun stopThread() {
         stop = true
         th?.interrupt()
         th = null

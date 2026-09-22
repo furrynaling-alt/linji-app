@@ -174,7 +174,10 @@ class MainActivity : Activity() {
 
         rebuildNav()
         // v2.17：App 桥（服务器 AI 控制/监督）—— 默认关，开发者模式里开
-        if (Bridge.enabled(this)) Bridge.start(this)
+        if (Bridge.enabled(this)) {
+            Bridge.start(this)
+            Bridge.syncNow(this)          // 打开 App 就先同步一次，不用手动点
+        }
         try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
             cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
@@ -1761,7 +1764,7 @@ class MainActivity : Activity() {
                 Bridge.start(this)
                 toast("桥已开：每 20 秒同步一次，联网/开机自动续上")
             } else {
-                Bridge.stop()
+                Bridge.stop(this)
                 toast("桥已关")
             }
         }
@@ -1770,7 +1773,9 @@ class MainActivity : Activity() {
         cBr.addView(rowB)
         cBr.addView(
             Ui.tv(
-                this, "地址：${Bridge.url(this)}\n令牌：" +
+                this, (if (Bridge.enabled(this)) "状态：✅ 自动同步中（每 20 秒）\n"
+                else "状态：⚠️ 桥没开 → 只有你手动点「立即同步」才会连\n") +
+                        "地址：${Bridge.url(this)}\n令牌：" +
                         (if (Bridge.token(this).isBlank()) "未设置（服务器会拒收）" else "已设置") +
                         "\n上次同步：${Bridge.lastSync(this)}", 12f, Ui.SUB
             )
