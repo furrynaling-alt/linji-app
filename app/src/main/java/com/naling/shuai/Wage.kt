@@ -216,6 +216,16 @@ object Wage {
 
     fun sumPay(list: List<Rec>): Double = list.sumOf { payOf(it) }
 
+    fun cycleIncome(off: Int): Double {
+        val cyc = cycleStartDate(off)
+        val list = recsIn(off)
+        val days = workDays(list)
+        val pay = sumPay(list)
+        val subT = itemTotal(K_SUB, cyc, days)
+        val cutT = itemTotal(K_CUT, cyc, days) + itemTotal(K_OTH, cyc, days)
+        return pay + subT - cutT
+    }
+
     /** 出勤天数（同一天多笔算 1 天；休息 / 请假不算） */
     fun workDays(list: List<Rec>): Int =
         list.filter { it.shift != "休息" && it.shift != "请假" }.map { it.date }.distinct().size

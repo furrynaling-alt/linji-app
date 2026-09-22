@@ -302,7 +302,7 @@ object Cards {
                 3 -> Store.meds().size.toString() + " 种"
                 6 -> "¥" + Book.money(Book.recs().filter { it.date == d && !it.income }.sumOf { it.amount })
                 7 -> (Store.habitRateOn(d) * 100).toInt().toString() + "%"
-                5 -> "¥" + Book.money(Book.recs().filter { it.date.startsWith(d.substring(0, 7)) && it.income }.sumOf { it.amount })
+                5 -> "¥" + Wage.money(Wage.cycleIncome(0))
                 else -> (Store.habitRateOn(d) * 100).toInt().toString() + "%"
             }
         } catch (_: Exception) {
@@ -324,7 +324,7 @@ object Cards {
     }
 
     /** GNAME 风卡片：左上小标签 + 超大数字 + 底部胶囊 + 卡下小字 */
-    private fun gnameCard(act: MainActivity, c: C, big: String, tap: () -> Unit): View {
+    private fun gnameCard(act: MainActivity, c: C, big: String, pillTxt: String = "查看", tap: () -> Unit): View {
         val wrap = LinearLayout(act)
         wrap.orientation = LinearLayout.VERTICAL
         val sz = c.size.coerceIn(1, 2)
@@ -359,14 +359,9 @@ object Cards {
         numTv.layoutParams = LinearLayout.LayoutParams(MAP(), WRAP())
         box.addView(numTv)
         box.addView(View(act), LinearLayout.LayoutParams(MAP(), 0, 1f))
-        if (sz != 1) box.addView(pill(act, "查看", dark), LinearLayout.LayoutParams(MAP(), WRAP()))
+        if (sz != 1) box.addView(pill(act, pillTxt, dark), LinearLayout.LayoutParams(MAP(), WRAP()))
         frame.addView(box, FrameLayout.LayoutParams(MAP(), MAP()))
         wrap.addView(frame)
-        val cap = Ui.tv(act, c.title, 12.5f, 0xE61C1C1E.toInt(), true)
-        cap.gravity = Gravity.CENTER
-        cap.layoutParams = LinearLayout.LayoutParams(MAP(), WRAP())
-        cap.setPadding(0, Ui.dp(act, 6f), 0, 0)
-        wrap.addView(cap)
         wrap.isClickable = true
         pressEffect(wrap)
         if (editMode) {
@@ -439,7 +434,13 @@ object Cards {
             val v = if (c.plug != null) {
                 pluginCard(act, c)
             } else if (c.fn >= 0) {
-                gnameCard(act, c, fnPreview(c.fn)) { act.openPage(c.fn) }
+                val startFirst = c.fn == 1
+                gnameCard(act, c, fnPreview(c.fn), if (startFirst) "开始" else "查看") {
+                    if (startFirst) {
+                        PomodoroService.start(act, PomodoroService.PHASE_WORK)
+                    }
+                    act.openPage(c.fn)
+                }
             } else {
                 gnameCard(act, c, Math.abs(daysOf(c)).toString()) { edit(act, c) }
             }

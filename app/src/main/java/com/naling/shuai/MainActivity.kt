@@ -2363,7 +2363,7 @@ class MainActivity : Activity() {
         val pay = Wage.sumPay(list)
         val subT = Wage.itemTotal(Wage.K_SUB, cyc, days)
         val cutT = Wage.itemTotal(Wage.K_CUT, cyc, days) + Wage.itemTotal(Wage.K_OTH, cyc, days)
-        val income = pay + subT - cutT
+        val income = Wage.cycleIncome(wageOff)
         val mLabel = Wage.md(Wage.cycleStartDate(wageOff)).substringBefore(".").trimStart('0') + "月"
 
         // ---- 顶部：本月收入大卡 ----
