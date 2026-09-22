@@ -406,9 +406,15 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_PICK_IMG && resultCode == RESULT_OK) {
-            // v2.16：卡片背景图选好了（Cards.pickImage 注册的回调）
-            data?.data?.let { u -> pickCb?.invoke(u) }
+        if (requestCode == REQ_PICK_IMG) {
+            val uri = data?.data ?: data?.clipData?.getItemAt(0)?.uri
+            val cb = pickCb
+            pickCb = null
+            if (resultCode == RESULT_OK && uri != null) {
+                if (cb != null) cb.invoke(uri) else Cards.applyPickedFallback(this, uri)
+            } else if (resultCode == RESULT_OK) {
+                toast("没拿到图片，再选一次")
+            }
             return
         }
         if (requestCode == 21 && resultCode == RESULT_OK && data?.data != null) {
@@ -750,8 +756,14 @@ class MainActivity : Activity() {
             it.addCategory(Intent.CATEGORY_OPENABLE)
             startActivityForResult(Intent.createChooser(it, "选择背景图"), REQ_PICK_IMG)
         } catch (e: Exception) {
-            pickCb = null
-            Toast.makeText(this, "打不开相册：${e.message}", Toast.LENGTH_SHORT).show()
+            try {
+                val it2 = Intent(Intent.ACTION_PICK)
+                it2.type = "image/*"
+                startActivityForResult(it2, REQ_PICK_IMG)
+            } catch (e2: Exception) {
+                pickCb = null
+                Toast.makeText(this, "打不开相册：${e2.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

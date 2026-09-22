@@ -485,7 +485,8 @@ object Cards {
             else -> 0
         }
         val bgFile = if (builtin == 0) c.bg?.let { File(it) } else null
-        val hasImg = builtin != 0 || (bgFile != null && bgFile.exists())
+        val bgBmp = if (bgFile != null && bgFile.exists()) decodeScaled(bgFile.absolutePath, 1080) else null
+        val hasImg = builtin != 0 || bgBmp != null
         val base = if (c.color >= 0) c.color else PALETTE[0]
         if (hasImg) {
             val iv = ImageView(act)
@@ -493,7 +494,7 @@ object Cards {
             if (builtin != 0) {
                 iv.setImageResource(builtin)
             } else {
-                iv.setImageBitmap(android.graphics.BitmapFactory.decodeFile(bgFile!!.absolutePath))
+                iv.setImageBitmap(bgBmp)
             }
             frame.addView(iv, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -801,6 +802,242 @@ object Cards {
         act.homeRefresh()
     }
 
+    /** GNAME 风高饱和配色用到时取内置图 */
+    private fun builtinOf(tag: String): Int = when (tag) {
+        "@fox1" -> R.drawable.bg_fox
+        "@fox2", "@foxsnow" -> R.drawable.bg_foxsnow
+        "@foxhead" -> R.drawable.bg_fox_head
+        else -> R.drawable.bg_home
+    }
+
+    /** 按最长边限采样解码，避免大图直接把 App 撑爆（解不出来返回 null） */
+    private fun decodeScaled(path: String, maxPx: Int): android.graphics.Bitmap? {
+        return try {
+            val o = android.graphics.BitmapFactory.Options()
+            o.inJustDecodeBounds = true
+            android.graphics.BitmapFactory.decodeFile(path, o)
+            if (o.outWidth <= 0 || o.outHeight <= 0) return null
+            var s = 1
+            while (o.outWidth / s > maxPx || o.outHeight / s > maxPx) s *= 2
+            val o2 = android.graphics.BitmapFactory.Options()
+            o2.inSampleSize = s
+            android.graphics.BitmapFactory.decodeFile(path, o2)
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /** 卡片在首页上的实际像素尺寸（裁剪预览按它取比例，裁完和首页一模一样） */
+    private fun cardBox(act: MainActivity, sz: Int): Pair<Int, Int> {
+        val rowW = act.resources.displayMetrics.widthPixels - Ui.dp(act, 24f) - Ui.dp(act, 10f)
+        val w = if (sz == 1) rowW / 4 else rowW / 2
+        val h = Ui.dp(act, if (sz == 1) 106f else 148f)
+        return Pair(w.coerceAtLeast(80), h)
+    }
+
+    private fun copyUri(act: MainActivity, uri: android.net.Uri, dst: File): Boolean {
+        return try {
+            val ins = act.contentResolver.openInputStream(uri)
+            if (ins == null) {
+                false
+            } else {
+                ins.use { i -> dst.outputStream().use { o -> i.copyTo(o) } }
+                decodeScaled(dst.absolutePath, 1600) != null
+            }
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    private fun bake(
+        act: MainActivity, bmp: android.graphics.Bitmap, cid: Long,
+        pw: Int, ph: Int, s: Float, tx: Float, ty: Float
+    ): String? {
+        return try {
+            val ow = 1024
+            val oh = (ow * ph / pw.toFloat()).toInt().coerceIn(64, 4096)
+            val out = android.graphics.Bitmap.createBitmap(ow, oh, android.graphics.Bitmap.Config.ARGB_8888)
+            val cv = android.graphics.Canvas(out)
+            val sx0 = ((0f - tx) / s).toInt().coerceIn(0, (bmp.width - 2).coerceAtLeast(0))
+            val sy0 = ((0f - ty) / s).toInt().coerceIn(0, (bmp.height - 2).coerceAtLeast(0))
+            val sx1 = ((pw - tx) / s).toInt().coerceIn(sx0 + 1, bmp.width)
+            val sy1 = ((ph - ty) / s).toInt().coerceIn(sy0 + 1, bmp.height)
+            cv.drawBitmap(
+                bmp, android.graphics.Rect(sx0, sy0, sx1, sy1), android.graphics.Rect(0, 0, ow, oh),
+                android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+            )
+            val dir = File(act.filesDir, "cards").apply { mkdirs() }
+            val f = File(dir, "card_${cid}_${System.currentTimeMillis()}.jpg")
+            java.io.FileOutputStream(f).use { out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }
+            out.recycle()
+            dir.listFiles()?.forEach { x ->
+                if (x.name != f.name && x.name.startsWith("card_${cid}_") && !x.name.endsWith("_src.jpg")) x.delete()
+            }
+            f.absolutePath
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /** 选完图后的「拖动 + 缩放」裁剪框（纯代码，零依赖，保存时把结果烤成一张图） */
+    private fun bgAdjust(act: MainActivity, src: File, cid: Long, sz: Int, onDone: (String?) -> Unit) {
+        val bmp = decodeScaled(src.absolutePath, 1600)
+        if (bmp == null) {
+            Toast.makeText(act, "这张图读不出来，换一张试试", Toast.LENGTH_SHORT).show()
+            onDone(null)
+            return
+        }
+        val col = LinearLayout(act)
+        col.orientation = LinearLayout.VERTICAL
+        col.setPadding(Ui.dp(act, 14f), Ui.dp(act, 10f), Ui.dp(act, 14f), 0)
+
+        val iv = ImageView(act)
+        iv.scaleType = ImageView.ScaleType.MATRIX
+        iv.setImageBitmap(bmp)
+        val pv = FrameLayout(act)
+        val box = cardBox(act, sz)
+        val cw = (act.resources.displayMetrics.widthPixels - Ui.dp(act, 96f)).coerceAtMost(Ui.dp(act, 300f))
+        var pw = cw
+        var ph = (cw * box.second / box.first.toFloat()).toInt()
+        if (ph > Ui.dp(act, 230f)) {
+            ph = Ui.dp(act, 230f)
+            pw = (ph * box.first / box.second.toFloat()).toInt()
+        }
+        pv.layoutParams = LinearLayout.LayoutParams(pw, ph)
+        pv.clipToOutline = true
+        pv.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(v: View, o: android.graphics.Outline) {
+                o.setRoundRect(0, 0, v.width, v.height, Ui.dp(act, 18f).toFloat())
+            }
+        }
+        pv.background = Ui.round(0xFF111111.toInt(), 18, act)
+        pv.addView(iv, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        col.addView(pv)
+
+        var baseS = 1f
+        var scale = 1f
+        var tx = 0f
+        var ty = 0f
+        val m = android.graphics.Matrix()
+
+        fun paint() {
+            val iw = bmp.width * baseS * scale
+            val ih = bmp.height * baseS * scale
+            tx = if (iw <= pw) (pw - iw) / 2f else tx.coerceIn(pw - iw, 0f)
+            ty = if (ih <= ph) (ph - ih) / 2f else ty.coerceIn(ph - ih, 0f)
+            m.reset()
+            m.setScale(baseS * scale, baseS * scale)
+            m.postTranslate(tx, ty)
+            iv.imageMatrix = m
+        }
+
+        pv.post {
+            baseS = maxOf(pw / bmp.width.toFloat(), ph / bmp.height.toFloat())
+            tx = (pw - bmp.width * baseS) / 2f
+            ty = (ph - bmp.height * baseS) / 2f
+            paint()
+        }
+
+        col.addView(Ui.tv(act, "拖动图片调位置，滑杆缩放", 11f, Ui.SUB))
+        val sb = SeekBar(act)
+        sb.max = 100
+        sb.progress = 0
+        col.addView(sb)
+
+        var lastX = 0f
+        var lastY = 0f
+        iv.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    lastX = e.x
+                    lastY = e.y
+                    true
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    tx += e.x - lastX
+                    ty += e.y - lastY
+                    lastX = e.x
+                    lastY = e.y
+                    paint()
+                    true
+                }
+                else -> false
+            }
+        }
+
+        sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                val nz = 1f + p / 50f
+                if (baseS * scale > 0f) {
+                    val cx = (pw / 2f - tx) / (baseS * scale)
+                    val cy = (ph / 2f - ty) / (baseS * scale)
+                    scale = nz
+                    tx = pw / 2f - cx * baseS * scale
+                    ty = ph / 2f - cy * baseS * scale
+                    paint()
+                }
+            }
+
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {}
+        })
+
+        val br = Ui.btn(act, "重置", filled = false, small = true)
+        br.setOnClickListener {
+            scale = 1f
+            sb.progress = 0
+            tx = (pw - bmp.width * baseS) / 2f
+            ty = (ph - bmp.height * baseS) / 2f
+            paint()
+        }
+        col.addView(br)
+
+        val dlg = AlertDialog.Builder(act)
+            .setTitle("调整背景（拖动 / 缩放）")
+            .setView(col)
+            .setPositiveButton("保存", null)
+            .setNegativeButton("取消") { _, _ -> onDone(null) }
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val f = bake(act, bmp, cid, pw, ph, baseS * scale, tx, ty)
+                dlg.dismiss()
+                if (f == null) Toast.makeText(act, "保存失败，换一张试试", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(act, "背景已设置", Toast.LENGTH_SHORT).show()
+                onDone(f)
+            }
+        }
+        dlg.show()
+    }
+
+    /** 选图回来时 Activity 被系统重建 → 回调没了，这里照样把背景落到卡片上 */
+    fun applyPickedFallback(act: MainActivity, uri: android.net.Uri) {
+        val cid = Store.prefs().getLong("pickCardId", 0L)
+        val dir = File(act.filesDir, "cards").apply { mkdirs() }
+        val src = File(dir, "card_${cid}_src.jpg")
+        if (!copyUri(act, uri, src)) {
+            Toast.makeText(act, "这张图读不出来，换一张试试", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sz = if (cid > 0) (load().firstOrNull { it.id == cid }?.size ?: 2) else 2
+        bgAdjust(act, src, cid, sz) { path ->
+            if (path == null) return@bgAdjust
+            if (cid > 0) {
+                val l = load()
+                val i = l.indexOfFirst { it.id == cid }
+                if (i >= 0) {
+                    l[i].bg = path
+                    save(l)
+                    act.homeRefresh()
+                }
+            } else {
+                Store.prefs().edit().putString("pickNewBg", path).apply()
+                Toast.makeText(act, "背景存好了，再点一次「添加卡片」就会用上", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     /** 长按卡片：换背景 / 调位置 / 换整页背景 / 删除 */
     private fun longPressMenu(act: MainActivity, c: C) {
         AlertDialog.Builder(act).setTitle(c.title)
@@ -956,7 +1193,7 @@ object Cards {
         col.addView(etDate)
 
         var picked = old?.color ?: -1
-        var pendingBg: String? = old?.bg
+        var pendingBg: String? = old?.bg ?: Store.prefs().getString("pickNewBg", null)
         col.addView(Ui.tv(act, "预览（改颜色/高度即时可见）", 11f, Ui.SUB))
         val pv = FrameLayout(act)
         pv.layoutParams = LinearLayout.LayoutParams(
@@ -966,6 +1203,19 @@ object Cards {
             pv.removeAllViews()
             val base = if (picked >= 0) picked else STRONG[2]
             pv.background = Ui.round(base, 22, act)
+            if (pendingBg != null) {
+                val bl = pendingBg!!
+                val ivp = ImageView(act)
+                ivp.scaleType = ImageView.ScaleType.CENTER_CROP
+                if (bl.startsWith("@")) ivp.setImageResource(builtinOf(bl))
+                else decodeScaled(bl, 640)?.let { ivp.setImageBitmap(it) }
+                pv.addView(ivp, FrameLayout.LayoutParams(MAP(), MAP()))
+                val sc = View(act)
+                sc.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(0x66000000, 0x22000000, 0xB3000000.toInt()))
+                pv.addView(sc, FrameLayout.LayoutParams(MAP(), MAP()))
+            }
+            val darkPv = pendingBg != null || isDark(base)
             pv.clipToOutline = true
             pv.outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(vv: View, o: android.graphics.Outline) {
@@ -973,12 +1223,12 @@ object Cards {
                 }
             }
             val tvv = Ui.tv(act, etTitle.text.toString().ifEmpty { "标题" }, 12f,
-                if (isDark(base)) 0xB3FFFFFF.toInt() else 0x991C1C1E.toInt())
+                if (darkPv) 0xB3FFFFFF.toInt() else 0x991C1C1E.toInt())
             tvv.gravity = Gravity.CENTER
             val nv = Ui.tv(act, old?.let { Math.abs(daysOf(it)).toString() } ?: "365", 30f,
-                if (isDark(base)) Color.WHITE else 0xFF1C1C1E.toInt(), true)
+                if (darkPv) Color.WHITE else 0xFF1C1C1E.toInt(), true)
             nv.gravity = Gravity.CENTER
-            val pg = Ui.tv(act, "查看", 12f, if (isDark(base)) Color.WHITE else 0xFF1C1C1E.toInt(), true)
+            val pg = Ui.tv(act, "查看", 12f, if (darkPv) Color.WHITE else 0xFF1C1C1E.toInt(), true)
             pg.gravity = Gravity.CENTER
             pg.setPadding(0, Ui.dp(act, 8f), 0, Ui.dp(act, 8f))
             pg.background = Ui.round(if (isDark(base)) 0x33FFFFFF else 0x1A000000, 12, act)
@@ -1084,12 +1334,17 @@ object Cards {
         cbRep.isChecked = old?.rep ?: false
         col.addView(cbRep)
 
-        val bgRow = LinearLayout(act)
-        bgRow.orientation = LinearLayout.HORIZONTAL
+        val bgRow = Ui.row(act)
         val bPick = Ui.btn(act, if (old?.bg != null) "换背景图" else "选背景图", filled = false, small = true)
-        val bClear = Ui.btn(act, "清除背景", filled = false, small = true)
-        bgRow.addView(bPick); bgRow.addView(bClear)
+        val bAdj = Ui.btn(act, "调整 / 裁剪", filled = false, small = true)
+        bgRow.addView(bPick)
+        bgRow.addView(bAdj)
         col.addView(bgRow)
+        val bgRow2 = Ui.row(act)
+        val bClear = Ui.btn(act, "清除背景", filled = false, small = true)
+        bgRow2.addView(bClear)
+        col.addView(bgRow2)
+        col.addView(Ui.tv(act, "选完图可拖动位置、滑杆缩放，再点保存（裁完和首页一模一样）", 11f, Ui.SUB))
 
         col.addView(Ui.tv(act, "内置背景", 12f, Ui.SUB))
         val biRow = LinearLayout(act)
@@ -1117,22 +1372,48 @@ object Cards {
         bClear.setOnClickListener {
             pendingBg = null
             bgNow(act, old, null)
+            refreshPv()
             Toast.makeText(act, "已清除背景", Toast.LENGTH_SHORT).show()
         }
+        fun szOf(): Int = if (rgS.checkedRadioButtonId == 3001) 1 else 2
         bPick.setOnClickListener {
+            val cid = old?.id ?: 0L
+            Store.prefs().edit().putLong("pickCardId", cid).apply()
             act.pickImage { uri ->
-                val f = File(File(act.filesDir, "cards").apply { mkdirs() },
-                    "card_${old?.id ?: System.currentTimeMillis()}.jpg")
-                try {
-                    act.contentResolver.openInputStream(uri)?.use { ins ->
-                        f.outputStream().use { outs -> ins.copyTo(outs) }
+                val dir = File(act.filesDir, "cards").apply { mkdirs() }
+                val src = File(dir, "card_${cid}_src.jpg")
+                if (copyUri(act, uri, src)) {
+                    bgAdjust(act, src, cid, szOf()) { path ->
+                        if (path != null) {
+                            pendingBg = path
+                            bgNow(act, old, path)
+                            refreshPv()
+                        }
                     }
-                    pendingBg = f.absolutePath
-                    bgNow(act, old, f.absolutePath)
-                    Toast.makeText(act, "背景已设置", Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                    Toast.makeText(act, "读取图片失败：${e.message}", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(act, "这张图读不出来，换一张试试", Toast.LENGTH_SHORT).show()
                 }
+            }
+        }
+        bAdj.setOnClickListener {
+            val p = pendingBg
+            val cid = old?.id ?: 0L
+            val src = File(File(act.filesDir, "cards"), "card_${cid}_src.jpg")
+            val go: (File) -> Unit = { f ->
+                bgAdjust(act, f, cid, szOf()) { path ->
+                    if (path != null) {
+                        pendingBg = path
+                        bgNow(act, old, path)
+                        refreshPv()
+                    }
+                }
+            }
+            when {
+                p == null -> Toast.makeText(act, "先选一张背景图", Toast.LENGTH_SHORT).show()
+                p.startsWith("@") -> Toast.makeText(act, "内置背景不用裁剪", Toast.LENGTH_SHORT).show()
+                src.exists() -> go(src)
+                File(p).exists() -> go(File(p))
+                else -> Toast.makeText(act, "图找不到了，重新选一张", Toast.LENGTH_SHORT).show()
             }
         }
 
