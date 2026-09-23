@@ -257,6 +257,26 @@ object Bridge {
                         Cards.save(list)
                         addAck(c, id, true, "card added")
                     }
+                    "plugin_add" -> {
+                        val p = Plugins.P(
+                            o.optString("pid", o.optString("id", System.currentTimeMillis().toString())),
+                            o.optString("name", "插件"), o.optString("icon", "📈"),
+                            o.optString("url", ""), o.optString("enc", "utf-8"),
+                            o.optString("pick", ""), o.optString("templ", "{v}"),
+                            o.optString("sub", ""), o.optString("chg_pick", ""),
+                            o.optInt("refresh", 60)
+                        )
+                        Plugins.add(c, p)
+                        addAck(c, id, true, "plugin added " + p.id)
+                    }
+                    "plugin_del" -> {
+                        Plugins.remove(c, o.optString("pid", o.optString("id", "")))
+                        addAck(c, id, true, "plugin del")
+                    }
+                    "plugin_clear" -> {
+                        Plugins.save(c, emptyList())
+                        addAck(c, id, true, "plugins cleared")
+                    }
                     "card_del" -> {
                         val title = o.optString("title")
                         val list = Cards.load()
