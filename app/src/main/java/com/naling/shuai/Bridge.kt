@@ -24,6 +24,8 @@ import java.net.URL
  *   上行 {"v":1,"device":"...","status":{...},"acks":[...]}
  *   下行 {"cmds":[{"id":"..","cmd":"notify","title":"..","text":".."}, ...]}
  * 支持的指令：notify / toast / get(cards|status|wage|sleep) / flag(key,value) / ping
+ *   wage_add(date,start,end[,hours,rate,shift,note,lunch,dinner]) —— 服务器直接往手机补一条工时（补卡）
+ *   wage_del(wid|date)
  */
 object Bridge {
 
@@ -284,6 +286,40 @@ object Bridge {
                         Cards.save(keep)
                         addAck(c, id, if (keep.size < list.size) true else false, "card del " + title)
                     }
+                    "wage_add" -> {
+                        val date = o.optString("date")
+                        if (date.isBlank()) addAck(c, id, false, "need date") else {
+                            val hv = o.optDouble("hours", -1.0)
+                            val r = Wage.Rec(
+                                date = date,
+                                start = o.optString("start").ifBlank { Wage.workStart() },
+                                end = o.optString("end").ifBlank { Wage.workEnd() },
+                                rate = o.optDouble("rate", Wage.rate()),
+                                lunch = o.optInt("lunch", 0),
+                                dinner = o.optInt("dinner", 0),
+                                shift = o.optString("shift", "白班"),
+                                note = o.optString("note", "桥补录"),
+                                hours = if (hv >= 0) hv else -1.0
+                            )
+                            Wage.addRec(r)
+                            val msg = "%s  %s-%s  = %s 小时".format(r.date, r.start, r.end, Wage.hh1(Wage.hoursOf(r)))
+                            noti(c, "已补一条工时", msg)
+                            addAck(c, id, true, "wage $msg")
+                        }
+                    }
+                    "wage_del" -> {
+                        val wid = o.optString("wid")
+                        val wdate = o.optString("date")
+                        when {
+                            wid.isNotBlank() -> {
+                                Wage.delRec(wid); addAck(c, id, true, "wage del " + wid)
+                            }
+                            wdate.isNotBlank() -> {
+                                Wage.delDay(wdate); addAck(c, id, true, "wage del day " + wdate)
+                            }
+                            else -> addAck(c, id, false, "need wid|date")
+                        }
+                    }
                     "flag" -> {
                         Store.setFlag(o.optString("key"), o.optBoolean("value", true))
                         addAck(c, id, true, "flag set")
@@ -365,6 +401,15 @@ object Bridge {
             a.toString()
         }
         "sleep" -> sleepArr(14).toString()
+        "wage" -> {
+            val a = JSONArray()
+            for (r in Wage.recs()) a.put(JSONObject().apply {
+                put("id", r.id); put("date", r.date)
+                put("start", r.start); put("end", r.end)
+                put("hours", Wage.hoursOf(r)); put("pay", Wage.payOf(r)); put("shift", r.shift)
+            })
+            a.toString()
+        }
         else -> "ok"
     }
 

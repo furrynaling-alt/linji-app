@@ -11,8 +11,8 @@ android {
         applicationId "com.naling.shuai"
         minSdk 24
         targetSdk 34
-        versionCode 61
-        versionName "2.51"
+        versionCode 62
+        versionName "2.52"
         resConfigs "zh"
     }
 
