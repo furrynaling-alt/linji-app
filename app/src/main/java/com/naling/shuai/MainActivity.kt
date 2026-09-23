@@ -41,11 +41,13 @@ class MainActivity : Activity() {
     private lateinit var nav: LinearLayout
     private lateinit var countdownTv: TextView
     private lateinit var heroCountTv: TextView
-    private val tabNames = listOf("首页", "番茄", "便签", "用药", "设置", "工资", "记账", "统计")
+    private val tabNames = listOf("首页", "番茄", "便签", "用药", "设置", "工资", "记账", "统计",
+        "今日", "插件", "开发者", "股票")
     private val tabRes = listOf(
         R.drawable.ic_today, R.drawable.ic_timer, R.drawable.ic_note,
         R.drawable.ic_pill, R.drawable.ic_settings, R.drawable.ic_wage,
-        R.drawable.ic_book, R.drawable.ic_chart
+        R.drawable.ic_book, R.drawable.ic_chart,
+        R.drawable.ic_today, R.drawable.ic_note, R.drawable.ic_settings, R.drawable.ic_chart
     )
     private class NavItem(val id: Int, val box: LinearLayout, val iv: ImageView, val tv: TextView)
     private val navItems = mutableListOf<NavItem>()
@@ -62,7 +64,7 @@ class MainActivity : Activity() {
     private fun enabledTabs(): List<Int> {
         // 2026-09-21 纳棂定（棂记 v2.16）：底部固定 4 个入口 —— 首页 / 便签 / 工资 / 设置
         // 其余功能（番茄钟·用药提醒·记账·统计·今日概览）从「设置 → 更多功能」进，不再占导航
-        return listOf(0, 2, 5, 4)
+        return listOf(0, 2, 5, 4, 11)
     }
     private var current = 0
     private val h = Handler(Looper.getMainLooper())
@@ -265,6 +267,7 @@ class MainActivity : Activity() {
                 8 -> screenToday()
                 9 -> screenPlugins()
                 10 -> screenDev()
+                11 -> Stock.screen(this)
                 else -> screenSettings()
             }
         } catch (e: Throwable) {
