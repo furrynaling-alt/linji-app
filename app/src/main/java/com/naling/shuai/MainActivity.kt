@@ -64,7 +64,13 @@ class MainActivity : Activity() {
     private fun enabledTabs(): List<Int> {
         // 2026-09-21 纳棂定（棂记 v2.16）：底部固定 4 个入口 —— 首页 / 便签 / 工资 / 设置
         // 其余功能（番茄钟·用药提醒·记账·统计·今日概览）从「设置 → 更多功能」进，不再占导航
-        return listOf(0, 2, 5, 4, 11)
+        val base = listOf(0, 2, 5, 4)
+        val hasStock = try {
+            Store.pBridges().any { it.on && it.url.contains("stock") }
+        } catch (e: Exception) {
+            false
+        }
+        return if (hasStock) base + 11 else base
     }
     private var current = 0
     private val h = Handler(Looper.getMainLooper())
