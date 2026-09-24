@@ -2,7 +2,7 @@
 ================
 
 包名 / 应用名：com.naling.shuai / 棂记
-当前版本：versionName 2.52，versionCode 62
+当前版本：versionName 2.53，versionCode 63
 语言：Kotlin（纯代码布局，没有 XML 布局、没有 Jetpack Compose、没有 AndroidX UI）
 依赖：dev.rikka.shizuku:api / provider 13.1.5（熄屏用）+ com.github.mwiede:jsch（SSH 连接服务器），其余全原生
 

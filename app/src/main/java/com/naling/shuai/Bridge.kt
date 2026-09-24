@@ -26,6 +26,8 @@ import java.net.URL
  * 支持的指令：notify / toast / get(cards|status|wage|sleep) / flag(key,value) / ping
  *   wage_add(date,start,end[,hours,rate,shift,note,lunch,dinner]) —— 服务器直接往手机补一条工时（补卡）
  *   wage_del(wid|date)
+ *   sleep_add(date,start,end[,broke,auto]) —— 服务器直接补一条睡眠记录（跨零点自动 +1 天）
+ *   sleep_del(date) —— 删掉某一天归属的睡眠记录
  */
 object Bridge {
 
@@ -285,6 +287,37 @@ object Bridge {
                         val keep = list.filterNot { it.title == title }
                         Cards.save(keep)
                         addAck(c, id, if (keep.size < list.size) true else false, "card del " + title)
+                    }
+                    "sleep_add" -> {
+                        val date = o.optString("date")
+                        val s = o.optString("start")
+                        val e = o.optString("end")
+                        if (date.isBlank() || s.isBlank() || e.isBlank()) addAck(c, id, false, "need date/start/end")
+                        else try {
+                            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA)
+                            val st = fmt.parse(date + " " + s)?.time ?: 0L
+                            var en = fmt.parse(date + " " + e)?.time ?: 0L
+                            if (en <= st) en += 86400000L
+                            if (st <= 0L || en <= st) addAck(c, id, false, "bad time")
+                            else {
+                                Store.addSleep(st, en, o.optBoolean("broke", false), o.optBoolean("auto", false))
+                                val mins = ((en - st) / 60000L).toInt()
+                                val msg = "%s  %s-%s  = %d小时%d分".format(date, s, e, mins / 60, mins % 60)
+                                noti(c, "已补一条睡眠", msg)
+                                addAck(c, id, true, "sleep " + msg)
+                            }
+                        } catch (ex: Exception) {
+                            addAck(c, id, false, "err:" + (ex.message ?: ""))
+                        }
+                    }
+                    "sleep_del" -> {
+                        val wdate = o.optString("date")
+                        if (wdate.isBlank()) addAck(c, id, false, "need date")
+                        else {
+                            val del = Store.sleeps().filter { it.day == wdate }
+                            for (x in del) Store.delSleep(x.start, x.end)
+                            addAck(c, id, true, "sleep del " + wdate + " x" + del.size)
+                        }
                     }
                     "wage_add" -> {
                         val date = o.optString("date")
