@@ -113,6 +113,7 @@ class MainActivity : Activity() {
         super.onResume()
         h.removeCallbacks(uiTick)
         h.post(uiTick)
+        QuickWidget.refresh(this)
         show(current)
     }
 
@@ -1290,13 +1291,19 @@ class MainActivity : Activity() {
         col.addView(cS)
         }
 
-        // 趋势（近 7 天）
+        // 趋势
         if (Store.flag("trends")) {
-        val cT = card("趋势（近 7 天）")
-        val days = Store.lastDays(7)
-        val labels = days.map { it.substring(5) }
+        val cT = card("趋势")
+        val segR = Ui.row(this)
+        for (rg in intArrayOf(7, 30, 365)) {
+            segR.addView(chip(rg.toString() + " 天", trendRange == rg) { trendRange = rg; show(0) })
+        }
+        cT.addView(segR)
+        val days = Store.lastDays(trendRange)
+        val labels = trendLabels(days)
+        val slpAll = Store.sleeps()
         cT.addView(Ui.tv(this, "睡眠时长", 13f, Ui.SUB))
-        val t1 = TrendView(this, days.map { d -> (Store.sleeps().firstOrNull { it.day == d }?.minutes ?: 0) / 60f }, labels, "小时")
+        val t1 = TrendView(this, days.map { d -> (slpAll.firstOrNull { it.day == d }?.minutes ?: 0) / 60f }, labels, "小时", trendRange > 30)
         t1.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Ui.dp(this, 150f))
         cT.addView(t1)
         cT.addView(Ui.tv(this, "打卡完成率", 13f, Ui.SUB))
@@ -1308,6 +1315,7 @@ class MainActivity : Activity() {
         t3.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Ui.dp(this, 150f))
         cT.addView(t3)
         col.addView(cT)
+        col.addView(calCard())
         }
 
         // 打卡列表
@@ -4064,6 +4072,8 @@ class MainActivity : Activity() {
     }
 
     // ==================== 统计 / 月度 / 历史 ====================
+    private var trendRange = 7
+    private var calOff = 0
     private var statOff = 0        // 月份偏移
     private var statMetric = 0     // 0 打卡率 1 睡眠 2 番茄 3 工时 4 支出
 
@@ -4075,6 +4085,116 @@ class MainActivity : Activity() {
         val m = c.get(Calendar.MONTH) + 1
         val n = c.getActualMaximum(Calendar.DAY_OF_MONTH)
         return (1..n).map { "%04d-%02d-%02d".format(y, m, it) }
+    }
+
+    private fun trendLabels(days: List<String>): List<String> {
+        if (days.size <= 10) return days.map { it.substring(5) }
+        if (days.size <= 62) return days.mapIndexed { i, d ->
+            if (i == 0 || (i + 1) % 5 == 0 || i == days.size - 1) d.substring(8) else ""
+        }
+        return days.map { d -> if (d.endsWith("-01")) d.substring(5, 7) + "月" else "" }
+    }
+
+    private fun calTitle(off: Int): String {
+        val c = Calendar.getInstance()
+        c.add(Calendar.MONTH, off)
+        return "%d 年 %d 月".format(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1)
+    }
+
+    private fun calCard(): View {
+        val cc = card("睡眠日历")
+        val byDay = HashMap<String, Int>()
+        for (s in Store.sleeps()) if (!byDay.containsKey(s.day)) byDay[s.day] = s.minutes
+        val head = Ui.row(this)
+        head.gravity = Gravity.CENTER_VERTICAL
+        val bPrev = Ui.tv(this, "‹", 20f, Ui.RED, true)
+        bPrev.setPadding(Ui.dp(this, 14f), 0, Ui.dp(this, 14f), 0)
+        bPrev.isClickable = true
+        bPrev.setOnClickListener { calOff += 1; show(0) }
+        val tTitle = Ui.tv(this, calTitle(calOff), 15f, Ui.TXT, true)
+        tTitle.gravity = Gravity.CENTER
+        tTitle.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        val bNext = Ui.tv(this, "›", 20f, if (calOff <= 0) 0xFFC7C7CC.toInt() else Ui.RED, true)
+        bNext.setPadding(Ui.dp(this, 14f), 0, Ui.dp(this, 14f), 0)
+        bNext.isClickable = calOff > 0
+        bNext.setOnClickListener { if (calOff > 0) { calOff -= 1; show(0) } }
+        head.addView(bPrev)
+        head.addView(tTitle)
+        head.addView(bNext)
+        cc.addView(head)
+        val wk = Ui.row(this)
+        for (w in listOf("一", "二", "三", "四", "五", "六", "日")) {
+            val t = Ui.tv(this, w, 11f, Ui.SUB)
+            t.gravity = Gravity.CENTER
+            t.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            wk.addView(t)
+        }
+        cc.addView(wk)
+        val days = monthDays(calOff)
+        val cal = Calendar.getInstance()
+        cal.add(Calendar.MONTH, calOff)
+        cal.set(Calendar.DAY_OF_MONTH, 1)
+        val lead = (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7
+        val rows = (lead + days.size + 6) / 7
+        var idx = 0
+        for (r in 0 until rows) {
+            val row = Ui.row(this)
+            for (c in 0 until 7) {
+                val lp = LinearLayout.LayoutParams(0, Ui.dp(this, 42f), 1f)
+                lp.setMargins(Ui.dp(this, 2f), Ui.dp(this, 2f), Ui.dp(this, 2f), Ui.dp(this, 2f))
+                val di = idx - lead
+                if (di in days.indices) {
+                    val d = days[di]
+                    val m = byDay[d]
+                    val bg = when {
+                        m == null -> 0xFFF2F2F7.toInt()
+                        m >= 420 -> Ui.RED
+                        m >= 360 -> 0xFFE8737D.toInt()
+                        m >= 300 -> 0xFFF3AFB4.toInt()
+                        else -> 0xFFF9DCDC.toInt()
+                    }
+                    val deep = m != null && m >= 420
+                    val cell = Ui.tv(
+                        this, (di + 1).toString() + (if (Store.habitRateOn(d) > 0f) "\n•" else ""),
+                        12f, if (deep) Color.WHITE else Ui.TXT, deep
+                    )
+                    cell.gravity = Gravity.CENTER
+                    cell.background = Ui.ripple(this, 8, Ui.round(bg, 8, this), 0x20000000)
+                    cell.isClickable = true
+                    val mm = m
+                    cell.setOnClickListener {
+                        toast(
+                            if (mm == null) d.substring(5) + " 没有睡眠记录"
+                            else d.substring(5) + " 睡了 " + (mm / 60) + " 小时 " + (mm % 60) + " 分" +
+                                    (if (mm >= 420) "（够 7 小时）" else "（不足 7 小时）")
+                        )
+                    }
+                    cell.layoutParams = lp
+                    row.addView(cell)
+                } else {
+                    val e = Ui.tv(this, "", 12f, Ui.SUB)
+                    e.layoutParams = lp
+                    row.addView(e)
+                }
+                idx += 1
+            }
+            cc.addView(row)
+        }
+        var cnt = 0
+        var sum = 0
+        var good = 0
+        for (d in days) {
+            val m = byDay[d]
+            if (m != null) {
+                cnt += 1
+                sum += m
+                if (m >= 420) good += 1
+            }
+        }
+        val txt = if (cnt == 0) "本月还没有睡眠记录" else
+            "本月 %d 天有记录 · 平均 %d 小时 %d 分 · 够 7 小时 %d 天".format(cnt, sum / cnt / 60, sum / cnt % 60, good)
+        cc.addView(Ui.tv(this, txt + "\n红越深=睡得越够 · • =那天有打卡", 11f, Ui.SUB))
+        return cc
     }
 
     private fun screenStat(): View {

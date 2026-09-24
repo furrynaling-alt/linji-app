@@ -59,7 +59,8 @@ class TrendView(
         val barW = slot * 0.5f
         val radius = Ui.dp(context, 6f).toFloat()
 
-        if (lineMode) {
+        val dense = n > 40
+        if (lineMode || dense) {
             val path = android.graphics.Path()
             for (i in 0 until n) {
                 val ratio = (values[i] / maxV).coerceIn(0f, 1f)
@@ -71,15 +72,30 @@ class TrendView(
             linePaint.strokeWidth = Ui.dp(context, 2.5f).toFloat()
             canvas.drawPath(path, linePaint)
             val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Ui.RED }
+            val rDot = Ui.dp(context, if (dense) 1.6f else 3.5f).toFloat()
             for (i in 0 until n) {
                 val v = values[i]
                 val ratio = (v / maxV).coerceIn(0f, 1f)
                 val cx = left + slot * i + slot / 2
                 val cy = chartBottom - (chartBottom - chartTop) * ratio
-                canvas.drawCircle(cx, cy, Ui.dp(context, 3.5f).toFloat(), dot)
-                val txt = if (v <= 0f) "-" else if (v == v.toInt().toFloat()) v.toInt().toString() else "%.1f".format(v)
-                canvas.drawText(txt, cx, (cy - Ui.dp(context, 6f)).coerceAtLeast(textPaint.textSize), textPaint)
-                if (i < labels.size) canvas.drawText(labels[i], cx, height - Ui.dp(context, 4f).toFloat(), labelPaint)
+                canvas.drawCircle(cx, cy, rDot, dot)
+                if (!dense) {
+                    val txt = if (v <= 0f) "-" else if (v == v.toInt().toFloat()) v.toInt().toString() else "%.1f".format(v)
+                    canvas.drawText(txt, cx, (cy - Ui.dp(context, 6f)).coerceAtLeast(textPaint.textSize), textPaint)
+                }
+                if (i < labels.size && labels[i].isNotEmpty()) canvas.drawText(labels[i], cx, height - Ui.dp(context, 4f).toFloat(), labelPaint)
+            }
+            if (dense) {
+                val avg = values.average().toFloat()
+                val ay = chartBottom - (chartBottom - chartTop) * (avg / maxV).coerceIn(0f, 1f)
+                val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0x66D81E2C
+                    strokeWidth = Ui.dp(context, 1f).toFloat()
+                    pathEffect = android.graphics.DashPathEffect(
+                        floatArrayOf(Ui.dp(context, 5f).toFloat(), Ui.dp(context, 4f).toFloat()), 0f
+                    )
+                }
+                canvas.drawLine(left, ay, right, ay, dash)
             }
             if (unit.isNotEmpty()) {
                 val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
