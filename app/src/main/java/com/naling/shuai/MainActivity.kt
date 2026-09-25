@@ -66,7 +66,7 @@ class MainActivity : Activity() {
         // 其余功能（番茄钟·用药提醒·记账·统计·今日概览）从「设置 → 更多功能」进，不再占导航
         val base = listOf(0, 2, 5, 4)
         val hasStock = try {
-            Store.pBridges().any { it.on && it.url.contains("stock") }
+            Store.pBridges().any { it.on && it.url.contains("stock") } || Bridge.anyOn(this)
         } catch (e: Exception) {
             false
         }
@@ -289,6 +289,10 @@ class MainActivity : Activity() {
         v.animate().alpha(1f).translationY(0f).setDuration(190).setInterpolator(
             android.view.animation.DecelerateInterpolator()
         ).start()
+        h.postDelayed({
+            if (v.alpha < 1f) v.alpha = 1f
+            if (v.translationY != 0f) v.translationY = 0f
+        }, 420)
         updateCountdown()
     }
 
