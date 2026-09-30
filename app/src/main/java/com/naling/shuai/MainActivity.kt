@@ -648,14 +648,19 @@ class MainActivity : Activity() {
         box.setPadding(Ui.dp(this, 18f), 0, Ui.dp(this, 18f), 0)
         val fields = mutableListOf<EditText>()
         for (h in hints) {
-            val e = if (h.contains("天数") || h.contains("分钟") || h.contains("秒"))
-                edit(h, InputType.TYPE_CLASS_NUMBER) else edit(h)
+            val e = if (isNumHint(h)) edit(h, InputType.TYPE_CLASS_NUMBER) else edit(h)
             fields.add(e)
             box.addView(e)
         }
         AlertDialog.Builder(this).setTitle(title).setView(box)
             .setPositiveButton("确定") { _, _ -> onOk(fields.map { it.text.toString().trim() }) }
             .setNegativeButton("取消", null).show()
+    }
+
+    private fun isNumHint(h: String): Boolean {
+        if (h.contains("例如")) return false
+        val core = h.substringBefore("（").substringBefore("(")
+        return core.contains("天数") || core.contains("分钟") || core.contains("秒")
     }
 
     private fun habitMenu(hb: Store.Habit, back: Int = 0) {
@@ -1372,7 +1377,7 @@ class MainActivity : Activity() {
 
         val bAdd = Ui.btn(this, "＋ 添加习惯", filled = false)
         bAdd.setOnClickListener {
-            editRow("新习惯（点右上✕可删）", listOf("例如：跑步 20 分钟")) { v ->
+            editRow("新习惯", listOf("例如：跑步 / 早睡")) { v ->
                 if (v[0].isNotEmpty()) {
                     Store.addHabit(v[0]); show(0)
                 }
@@ -1791,7 +1796,7 @@ class MainActivity : Activity() {
         }
         val bAdd = Ui.btn(this, "＋ 添加习惯", filled = false)
         bAdd.setOnClickListener {
-            editRow("新习惯（点右上✕可删）", listOf("例如：跑步 20 分钟")) { v ->
+            editRow("新习惯", listOf("例如：跑步 / 早睡")) { v ->
                 if (v[0].isNotEmpty()) {
                     Store.addHabit(v[0]); show(2)
                 }

@@ -245,6 +245,22 @@ object Bridge {
                             addAck(c, id, true, "todo deleted")
                         }
                     }
+                    "habit_add" -> {
+                        val name = o.optString("name")
+                        if (name.isBlank()) addAck(c, id, false, "empty") else {
+                            Store.addHabit(name)
+                            noti(c, "棂星给你加了个习惯", name)
+                            addAck(c, id, true, "habit added")
+                        }
+                    }
+                    "habit_del" -> {
+                        val name = o.optString("name")
+                        val h = Store.habits().firstOrNull { name.isNotBlank() && it.name.contains(name) }
+                        if (h == null) addAck(c, id, false, "no such habit") else {
+                            Store.removeHabit(h.id)
+                            addAck(c, id, true, "habit deleted")
+                        }
+                    }
                     "lock" -> {
                         val m = o.optInt("minutes", Store.quickLockMin())
                         LockService.start(c, m, LockService.MODE_PLAIN)
